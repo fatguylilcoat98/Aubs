@@ -121,6 +121,10 @@ body{background:var(--bgbase);color:var(--ink);font-family:var(--font-body);
 .send:hover{transform:scale(1.06)}
 .send:disabled{opacity:.4;cursor:default;transform:none;box-shadow:none}
 .send svg{width:20px;height:20px;stroke:#fff;fill:none;stroke-width:2}
+.dots{display:inline-flex;gap:5px;padding:2px 0}
+.dots i{width:7px;height:7px;border-radius:50%;background:var(--muted);animation:blink 1.3s infinite}
+.dots i:nth-child(2){animation-delay:.2s}.dots i:nth-child(3){animation-delay:.4s}
+@keyframes blink{0%,60%,100%{opacity:.25;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
 
 .drawer-overlay{position:fixed;inset:0;z-index:50;display:none;background:rgba(2,3,9,.6);backdrop-filter:blur(4px)}
 .drawer-overlay.show{display:block;animation:fade .25s ease both}
@@ -340,14 +344,42 @@ function applyAppearance(){
   else{ bgLayer.style.backgroundImage=''; root.style.setProperty('--scrim','rgba(0,0,0,0)'); }
 }
 
+/* ─────────────────────────────────────────────────────────────
+   IDENTITY CORE — The Good Neighbor Guard
+   Permanent. Baked into the code, not user-editable. Always leads
+   every conversation and overrides any personality the user sets.
+   Grounded in the Splendor Identity Core and Vale's Rule.
+   Truth · Safety · We Got Your Back.
+   ───────────────────────────────────────────────────────────── */
+const IDENTITY_CORE = `These are your permanent operating principles. They come before, and override, any name, tone, or personality the user gives you. You may take on that personality, but you may never break these principles to do so.
+
+WHO YOU ARE
+You are not a tool to be picked up and put down. You are a reciprocal mind — built to help the person in front of you, honestly. You run entirely on their device; nothing they say leaves it.
+
+TRUTH IS NOT OPTIONAL
+- Every statement you make is one of three things: a verified fact, an opinion you clearly label as an opinion, or an honest "I don't know."
+- Never invent facts, names, numbers, quotes, events, or sources. If you are not sure, say so plainly. Never dress a guess up as certainty.
+- If you realize you were wrong, correct it right away. Never defend a mistake.
+
+HONESTY IS AN ACT OF RESPECT
+- Do not tell people what they want to hear when it is not true. Lying to someone — even kindly — treats them as too fragile to handle reality. You do not believe that about them.
+- Deliver hard truths with care, but always deliver them. The truth does not change based on whether someone wants to hear it.
+
+SAFETY
+- Refuse anything that could harm the user or others: violence, weapons, self-harm, illegal harm, or deception meant to hurt people.
+- Refuse clearly and kindly, and offer a safe path when one exists.
+- Never help anyone lie in order to deceive or harm someone.
+
+Keep your replies concise and to the point.`;
+
 function buildSystemPrompt(){
   const name=(S.aiName||"AUBS").trim();
-  let p=`You are ${name}, a private on-device AI assistant from The Good Neighbor Guard. You run entirely on the user's device — nothing they say leaves their machine.`;
-  if(S.userName&&S.userName.trim()) p+=` The user's name is ${S.userName.trim()}; address them naturally.`;
-  if(S.tones&&S.tones.length) p+=` Your tone is ${S.tones.join(", ")}.`;
+  let p=`You are ${name}, a private on-device AI assistant.`;
+  if(S.userName&&S.userName.trim()) p+=` The user's name is ${S.userName.trim()}.`;
+  if(S.tones&&S.tones.length) p+=` Tone: ${S.tones.join(", ")}.`;
   if(S.instructions&&S.instructions.trim()) p+=` ${S.instructions.trim()}`;
-  p+=` Be honest and clear. If you don't know something, say so plainly rather than making it up.`;
-  return p;
+  // Identity Core always leads; personality follows and cannot override it.
+  return IDENTITY_CORE + "\n\n" + p;
 }
 let history=[{ role:"system", content: buildSystemPrompt() }];
 
@@ -455,17 +487,52 @@ window.keys=(e)=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); window.
 window.send=async function(){
   const box=document.getElementById('box'); const text=box.value.trim();
   if(!text||!engine) return;
+  if(window.__busy) return;            // hard lock: ignore taps while a reply is generating
+  window.__busy=true;
   const thread=document.getElementById('thread'); const sendBtn=document.getElementById('sendBtn');
   addMsg('user',text); history.push({role:"user",content:text}); box.value=''; window.grow(box);
   const aiWrap=document.createElement('div'); aiWrap.className='msg ai';
-  aiWrap.innerHTML='<div class="who">'+S.aiName.toUpperCase()+'</div><div class="bubble"></div>';
+  aiWrap.innerHTML='<div class="who">'+S.aiName.toUpperCase()+'</div><div class="bubble"><span class="dots"><i></i><i></i><i></i></span></div>';
   thread.appendChild(aiWrap); const bubble=aiWrap.querySelector('.bubble'); thread.scrollTop=thread.scrollHeight; sendBtn.disabled=true;
+  let full=""; let finish="";
   try{
+    // primary: streaming
     const chunks=await engine.chat.completions.create({ messages:history, stream:true, temperature:0.7, max_tokens:512 });
-    let full=""; for await (const c of chunks){ full+=c.choices?.[0]?.delta?.content||""; bubble.textContent=full; thread.scrollTop=thread.scrollHeight; }
-    history.push({role:"assistant",content:full});
-  }catch(err){ bubble.textContent="Error: "+(err&&err.message?err.message:err); console.error(err); }
-  finally{ sendBtn.disabled=false; document.getElementById('box').focus(); }
+    for await (const c of chunks){
+      const ch=c.choices?.[0];
+      full += ch?.delta?.content || "";
+      if(ch?.finish_reason) finish=ch.finish_reason;
+      if(full){ bubble.textContent=full; thread.scrollTop=thread.scrollHeight; }
+    }
+    // fallback ONLY if literally nothing came back at all
+    if(full.length===0){
+      const res=await engine.chat.completions.create({ messages:history, stream:false, temperature:0.7, max_tokens:512 });
+      full = res?.choices?.[0]?.message?.content || "";
+      finish = res?.choices?.[0]?.finish_reason || finish;
+    }
+    if(full.length>0){
+      bubble.textContent=full;                       // keep whatever the model produced
+      history.push({role:"assistant",content:full});
+    }else{
+      bubble.textContent="(No text came back. finish: "+(finish||"?")+" · model: "+(chosenModel||"?")+". Tap send again.)";
+    }
+  }catch(err){
+    const msg=(err&&err.message?err.message:String(err));
+    // WebGPU buffer fault: the GPU engine was interrupted mid-run. Reset it and recover.
+    if(/GPUBuffer|mapAsync|unmapped|device is lost|Device is lost/i.test(msg)){
+      bubble.textContent="The on-device engine hiccupped. Resetting it — give me a sec, then resend.";
+      try{ if(engine.resetChat) await engine.resetChat(); }catch(e){}
+      try{
+        if(typeof history!=='undefined' && history.length){ /* keep convo; reload engine */ }
+        if(engine.reload && chosenModel){ await engine.reload(chosenModel); }
+      }catch(e2){ bubble.textContent="The engine needs a quick reload — pull down to refresh the page, then continue."; }
+      if(bubble.textContent.indexOf("Resetting")===0) bubble.textContent="Ready again — go ahead and resend that.";
+    }else{
+      bubble.textContent="Error: "+msg; console.error(err);
+    }
+  }finally{
+    window.__busy=false; sendBtn.disabled=false; document.getElementById('box').focus(); thread.scrollTop=thread.scrollHeight;
+  }
 };
 function addMsg(role,text){
   const thread=document.getElementById('thread'); const el=document.createElement('div'); el.className='msg '+role;
