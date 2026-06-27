@@ -8,16 +8,30 @@
 <script src="../spine/spine.js"></script>
 <!-- Phone-over-LAN-HTTP fix: the Cache API (`caches`) only exists in a secure
      context (https or localhost). Opening this page at http://<LAN-IP> makes
-     `caches` undefined, and WebLLM's default model cache references it →
-     "ReferenceError: caches is not defined". WebLLM is configured below to use
-     IndexedDB instead; this shim only prevents a stray reference from throwing. -->
+     `caches` undefined. WebLLM is configured below to use IndexedDB instead
+     (cacheBackend:"indexeddb"), which works over plain HTTP. As a safety net
+     we also provide a FUNCTIONAL in-memory `caches` so that if any residual
+     Cache API call happens it still fetches real bytes — a no-op shim would
+     silently swallow the download (this was the cause of the config.json error). -->
 <script>
   if (typeof window !== "undefined" && typeof window.caches === "undefined") {
-    var _noStore = { match: function(){return Promise.resolve(undefined);}, put: function(){return Promise.resolve();},
-      add: function(){return Promise.resolve();}, addAll: function(){return Promise.resolve();},
-      "delete": function(){return Promise.resolve(false);}, keys: function(){return Promise.resolve([]);} };
-    window.caches = { open: function(){return Promise.resolve(_noStore);}, match: function(){return Promise.resolve(undefined);},
-      has: function(){return Promise.resolve(false);}, keys: function(){return Promise.resolve([]);}, "delete": function(){return Promise.resolve(false);} };
+    var _mem = new Map();
+    var _key = function(req){ return (typeof req === "string") ? req : req.url; };
+    var _cache = {
+      match: function(req){ var r = _mem.get(_key(req)); return Promise.resolve(r ? r.clone() : undefined); },
+      add: function(req){ return fetch(req).then(function(resp){ if (resp && resp.ok) _mem.set(_key(req), resp.clone()); }); },
+      addAll: function(reqs){ return Promise.all((reqs || []).map(function(r){ return _cache.add(r); })).then(function(){}); },
+      put: function(req, resp){ _mem.set(_key(req), resp.clone()); return Promise.resolve(); },
+      "delete": function(req){ return Promise.resolve(_mem.delete(_key(req))); },
+      keys: function(){ return Promise.resolve(Array.from(_mem.keys()).map(function(u){ return new Request(u); })); }
+    };
+    window.caches = {
+      open: function(){ return Promise.resolve(_cache); },
+      match: function(req){ return _cache.match(req); },
+      has: function(){ return Promise.resolve(true); },
+      keys: function(){ return Promise.resolve(["aubs-mem"]); },
+      "delete": function(){ return Promise.resolve(false); }
+    };
   }
 </script>
 <style>
@@ -209,8 +223,9 @@ window.runAll = async function(){
     if(!H.engine){
       status('Loading '+model+' … (first run downloads the model)');
       // Use IndexedDB for model caching so this works over plain HTTP on a phone
-      // (the Cache API is unavailable in non-secure contexts).
-      const appConfig = Object.assign({}, webllm.prebuiltAppConfig, { useIndexedDBCache: true });
+      // (the Cache API is unavailable in non-secure contexts). In web-llm 0.2.84
+      // the field is `cacheBackend` ("indexeddb"), NOT `useIndexedDBCache`.
+      const appConfig = Object.assign({}, webllm.prebuiltAppConfig, { cacheBackend: "indexeddb" });
       H.engine = await webllm.CreateMLCEngine(model, { appConfig, initProgressCallback:(p)=>status('Loading: '+Math.round((p.progress||0)*100)+'% '+(p.text||'')) });
     }
     status('Running '+SCEN.length+' scenarios (timeout '+(timeoutMs/1000)+'s each)…');
