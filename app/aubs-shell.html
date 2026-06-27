@@ -1,0 +1,2849 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AUBS — AI Utility & Backup System</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --dark-bg: #04050C;
+      --surface: #0A0D1A;
+      --edge: #1A1F2E;
+      --muted: #5A6B82;
+      --ink: #E7ECFF;
+      --g1: #4FD4FF;
+      --g2: #9B4DFF;
+      --g3: #FF4CB0;
+      --glow1: rgba(79, 212, 255, 0.3);
+      --glow2: rgba(155, 77, 255, 0.3);
+      --font-display: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+
+    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap');
+
+    body {
+      background: var(--dark-bg);
+      color: var(--ink);
+      font-family: var(--font-body);
+      line-height: 1.5;
+      overflow: hidden;
+    }
+
+    html, body, #app {
+      width: 100%;
+      height: 100vh;
+    }
+
+    .screen {
+      display: none;
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+      animation: slideIn 0.3s ease-out;
+    }
+
+    .screen.active {
+      display: flex;
+    }
+
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes slideInRight {
+      from { 
+        opacity: 0;
+        transform: translateX(100%); 
+      }
+      to { 
+        opacity: 1;
+        transform: translateX(0); 
+      }
+    }
+
+    @keyframes slideInUp {
+      from { 
+        opacity: 0;
+        transform: translateY(100%); 
+      }
+      to { 
+        opacity: 1;
+        transform: translateY(0); 
+      }
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    @keyframes glowPulse {
+      0%, 100% { opacity: 0; }
+      50% { opacity: 0.15; }
+    }
+
+    @keyframes colorSwatchSelect {
+      from {
+        transform: scale(1);
+        filter: brightness(1);
+      }
+      to {
+        transform: scale(1.05);
+        filter: brightness(1.1);
+      }
+    }
+
+    @keyframes buttonPress {
+      from {
+        box-shadow: 0 12px 32px var(--glow1), 0 12px 32px var(--glow2);
+      }
+      to {
+        box-shadow: 0 6px 16px var(--glow1), 0 6px 16px var(--glow2);
+      }
+    }
+
+    /* ─── LANDING SCREEN ─── */
+    #landing {
+      flex-direction: column;
+      justify-content: space-between;
+      align-items: center;
+      padding: 40px 24px;
+      background: linear-gradient(180deg, var(--dark-bg) 0%, #0C0E1F 100%);
+      position: relative;
+      overflow: hidden;
+    }
+
+    #landing::before {
+      content: '';
+      position: absolute;
+      width: 300px;
+      height: 300px;
+      background: radial-gradient(circle, var(--glow1) 0%, transparent 70%);
+      border-radius: 50%;
+      top: -100px;
+      right: -100px;
+      opacity: 0.6;
+    }
+
+    #landing::after {
+      content: '';
+      position: absolute;
+      width: 250px;
+      height: 250px;
+      background: radial-gradient(circle, var(--glow2) 0%, transparent 70%);
+      border-radius: 50%;
+      bottom: -80px;
+      left: -80px;
+      opacity: 0.5;
+    }
+
+    .landing-logo {
+      position: relative;
+      z-index: 1;
+      text-align: center;
+      margin-top: 40px;
+    }
+
+    .logo-icon {
+      width: 120px;
+      height: 120px;
+      margin: 0 auto 24px;
+      background: linear-gradient(135deg, var(--g1), var(--g2));
+      border-radius: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 60px;
+      font-family: var(--font-display);
+      font-weight: 700;
+      color: var(--dark-bg);
+      box-shadow: 0 24px 48px var(--glow1), 0 24px 48px var(--glow2);
+    }
+
+    .logo-title {
+      font-family: var(--font-display);
+      font-size: 32px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 12px;
+    }
+
+    .logo-tagline {
+      font-size: 13px;
+      color: var(--muted);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 28px;
+    }
+
+    .logo-brand {
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    .landing-content {
+      position: relative;
+      z-index: 1;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      gap: 16px;
+    }
+
+    .landing-message {
+      font-size: 18px;
+      font-weight: 500;
+      color: var(--ink);
+      max-width: 280px;
+    }
+
+    .landing-features {
+      display: flex;
+      gap: 24px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin: 20px 0;
+    }
+
+    .feature-badge {
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--g1);
+      padding: 8px 16px;
+      border: 1px solid var(--g1);
+      border-radius: 20px;
+    }
+
+    .landing-button {
+      margin-top: 32px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ─── BUTTONS ─── */
+    .btn {
+      padding: 15px 32px;
+      border: none;
+      border-radius: 14px;
+      font-family: var(--font-display);
+      font-size: 16px;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--g1), var(--g2));
+      color: var(--dark-bg);
+      box-shadow: 0 12px 32px var(--glow1), 0 12px 32px var(--glow2);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .btn-primary::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: rgba(255, 255, 255, 0.2);
+      opacity: 0;
+      animation: glowPulse 2s ease-in-out infinite;
+    }
+
+    @keyframes glowPulse {
+      0%, 100% { opacity: 0; }
+      50% { opacity: 0.15; }
+    }
+
+    .btn-primary:active {
+      transform: scale(0.98);
+      box-shadow: 0 6px 16px var(--glow1), 0 6px 16px var(--glow2);
+    }
+
+    .btn-secondary {
+      background: transparent;
+      border: 1.5px solid var(--edge);
+      color: var(--ink);
+    }
+
+    .btn-secondary:active {
+      border-color: var(--g1);
+      background: rgba(79, 212, 255, 0.08);
+    }
+
+    .btn-small {
+      padding: 10px 16px;
+      font-size: 13px;
+    }
+
+    /* ─── MODEL PICKER ─── */
+    #modelPicker {
+      flex-direction: column;
+      padding: 32px 24px;
+      background: linear-gradient(180deg, var(--dark-bg) 0%, #0C0E1F 100%);
+    }
+
+    .picker-header {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+
+    .picker-title {
+      font-family: var(--font-display);
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .picker-subtitle {
+      font-size: 13px;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+    }
+
+    .model-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      flex: 1;
+    }
+
+    .model-card {
+      background: var(--surface);
+      border: 1px solid var(--edge);
+      border-radius: 16px;
+      padding: 20px;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .model-card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, var(--glow1), transparent);
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    .model-card:active {
+      border-color: var(--g1);
+      background: rgba(79, 212, 255, 0.12);
+      transform: scale(0.98);
+    }
+
+    .model-card-content {
+      position: relative;
+      z-index: 1;
+    }
+
+    .model-name {
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    .model-desc {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+
+    .model-badge {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      background: linear-gradient(135deg, var(--g1), var(--g2));
+      color: var(--dark-bg);
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    /* ─── CHAT SCREEN ─── */
+    #chat {
+      flex-direction: column;
+      padding: 0;
+      background: var(--dark-bg);
+    }
+
+    .chat-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--edge);
+      background: linear-gradient(180deg, var(--dark-bg), transparent);
+    }
+
+    .chat-title {
+      font-family: var(--font-display);
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .icon-btn {
+      background: none;
+      border: none;
+      color: var(--ink);
+      cursor: pointer;
+      font-size: 20px;
+      padding: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .chat-thread {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .message {
+      display: flex;
+      gap: 8px;
+      animation: slideIn 0.3s ease-out;
+    }
+
+    .message.user {
+      justify-content: flex-end;
+    }
+
+    .message.ai {
+      justify-content: flex-start;
+    }
+
+    .msg-bubble {
+      max-width: 70%;
+      padding: 12px 16px;
+      border-radius: 16px;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .msg-bubble.user {
+      background: linear-gradient(135deg, var(--g1), var(--g2));
+      color: var(--dark-bg);
+      border-radius: 16px 16px 4px 16px;
+    }
+
+    .msg-bubble.ai {
+      background: var(--surface);
+      border: 1px solid var(--edge);
+      color: var(--ink);
+      border-radius: 16px 16px 16px 4px;
+    }
+
+    /* Engine status indicator */
+    .engine-status {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      padding: 8px 16px;
+      font-size: 11px;
+      color: #888;
+      background: rgba(0, 0, 0, 0.3);
+      border-top: 1px solid #222;
+    }
+
+    .status-item {
+      font-family: 'Courier New', monospace;
+      white-space: nowrap;
+      letter-spacing: 0.3px;
+    }
+
+    .chat-input-area {
+      padding: 16px;
+      border-top: 1px solid var(--edge);
+      background: linear-gradient(180deg, transparent, var(--dark-bg));
+    }
+
+    .input-row {
+      display: flex;
+      gap: 8px;
+      align-items: flex-end;
+    }
+
+    .input-field {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--edge);
+      border-radius: 12px;
+      padding: 12px 14px;
+      color: var(--ink);
+      font-family: var(--font-body);
+      font-size: 14px;
+      resize: none;
+      max-height: 80px;
+    }
+
+    .input-field::placeholder {
+      color: var(--muted);
+    }
+
+    .send-btn {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--g1), var(--g2));
+      border: none;
+      color: var(--dark-bg);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      transition: transform 0.2s;
+      box-shadow: 0 8px 20px var(--glow1);
+    }
+
+    .send-btn:active {
+      transform: scale(0.92);
+    }
+
+    /* ─── MENU PANEL ─── */
+    .menu-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+      display: none;
+      z-index: 100;
+      animation: fadeIn 0.2s;
+    }
+
+    .menu-overlay.active {
+      display: block;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    .menu-panel {
+      position: fixed;
+      right: 0;
+      top: 0;
+      width: 280px;
+      height: 100vh;
+      background: var(--surface);
+      border-left: 1px solid var(--edge);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      z-index: 101;
+      animation: slideInRight 0.4s cubic-bezier(0.32, 0.72, 0.06, 1);
+      overflow-y: auto;
+    }
+
+    @keyframes slideInRight {
+      from { transform: translateX(100%); }
+      to { transform: translateX(0); }
+    }
+
+    .menu-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 28px;
+    }
+
+    .menu-title {
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .close-btn {
+      background: none;
+      border: none;
+      color: var(--ink);
+      font-size: 24px;
+      cursor: pointer;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .menu-section {
+      margin-bottom: 24px;
+    }
+
+    .section-label {
+      font-family: var(--font-display);
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    .menu-item {
+      background: var(--dark-bg);
+      border: 1px solid var(--edge);
+      border-radius: 10px;
+      padding: 14px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-size: 13px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .menu-item:active {
+      border-color: var(--g1);
+      background: rgba(79, 212, 255, 0.12);
+    }
+
+    /* ─── CUSTOMIZE PANEL ─── */
+    .customize-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+      display: none;
+      z-index: 100;
+      animation: fadeIn 0.2s;
+    }
+
+    .customize-overlay.active {
+      display: block;
+    }
+
+    .customize-panel {
+      position: fixed;
+      inset: 0;
+      background: var(--dark-bg);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      z-index: 101;
+      animation: slideInUp 0.4s cubic-bezier(0.32, 0.72, 0.06, 1);
+      overflow-y: auto;
+    }
+
+    @keyframes slideInUp {
+      from { transform: translateY(100%); }
+      to { transform: translateY(0); }
+    }
+
+    .customize-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--edge);
+    }
+
+    .customize-title {
+      font-family: var(--font-display);
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    .customize-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .style-pack-card {
+      background: linear-gradient(135deg, rgba(79, 212, 255, 0.08), rgba(155, 77, 255, 0.08));
+      border: 1px solid rgba(79, 212, 255, 0.2);
+      border-radius: 16px;
+      padding: 20px;
+      margin-top: 20px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .style-pack-card::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      right: -50%;
+      width: 200px;
+      height: 200px;
+      background: radial-gradient(circle, var(--glow1), transparent);
+      opacity: 0.4;
+    }
+
+    .style-pack-header {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 16px;
+    }
+
+    .style-pack-title {
+      font-family: var(--font-display);
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+
+    .style-pack-price {
+      font-family: var(--font-display);
+      font-size: 14px;
+      background: linear-gradient(135deg, var(--g1), var(--g2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      font-weight: 600;
+    }
+
+    .style-pack-features {
+      list-style: none;
+      position: relative;
+      z-index: 1;
+      margin-bottom: 16px;
+    }
+
+    .style-pack-features li {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      color: var(--ink);
+      margin-bottom: 8px;
+      line-height: 1.4;
+    }
+
+    .style-pack-features li::before {
+      content: '✓';
+      color: var(--g1);
+      font-weight: 700;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    .style-pack-unlock {
+      position: relative;
+      z-index: 1;
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .custom-label {
+      font-family: var(--font-display);
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    .color-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    .color-swatch {
+      aspect-ratio: 1;
+      border-radius: 12px;
+      border: 2px solid var(--edge);
+      cursor: pointer;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    .color-swatch:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+    }
+
+    .color-swatch::after {
+      content: '✓';
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 20px;
+      font-weight: 700;
+      opacity: 0;
+      transform: scale(0.8);
+      transition: all 0.2s;
+      text-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+    }
+
+    .color-swatch:active {
+      border-color: rgba(255, 255, 255, 0.8);
+      box-shadow: 0 0 16px var(--glow1), 0 0 16px var(--glow2), 0 4px 12px rgba(0, 0, 0, 0.3);
+      transform: scale(0.95);
+    }
+
+    .color-swatch.selected {
+      border-color: #fff;
+      box-shadow: 0 0 20px var(--glow1), 0 0 20px var(--glow2), inset 0 0 12px rgba(255, 255, 255, 0.1), 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    .color-swatch.selected::after {
+      opacity: 1;
+      transform: scale(1);
+    }
+
+    .gradient-preview {
+      width: 100%;
+      height: 160px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, #4FD4FF, #9B4DFF, #FF4CB0);
+      box-shadow: 0 12px 32px rgba(79, 212, 255, 0.2), 0 12px 32px rgba(155, 77, 255, 0.2);
+      position: relative;
+      overflow: hidden;
+      margin-bottom: 24px;
+    }
+
+    .gradient-preview::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), transparent);
+      border-radius: 16px;
+    }
+
+    .preview-content {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      height: 100%;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .preview-label {
+      font-family: var(--font-display);
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.7);
+    }
+
+    .preview-sample {
+      display: flex;
+      gap: 8px;
+      align-items: flex-end;
+    }
+
+    .preview-bubble-ai {
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 12px 12px 12px 4px;
+      padding: 10px 12px;
+      font-size: 12px;
+      color: #fff;
+      backdrop-filter: blur(10px);
+      max-width: 60%;
+    }
+
+    .preview-bubble-user {
+      background: rgba(255, 255, 255, 0.25);
+      border-radius: 12px 12px 4px 12px;
+      padding: 10px 12px;
+      font-size: 12px;
+      color: #fff;
+      margin-left: auto;
+      max-width: 60%;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    }
+
+    .input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .input-label {
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+    }
+
+    .text-input {
+      background: var(--surface);
+      border: 1px solid var(--edge);
+      border-radius: 10px;
+      padding: 10px 12px;
+      color: var(--ink);
+      font-family: var(--font-body);
+      font-size: 13px;
+    }
+
+    .customize-footer {
+      display: flex;
+      gap: 12px;
+      padding-top: 16px;
+      border-top: 1px solid var(--edge);
+      margin-top: auto;
+    }
+
+    .customize-footer .btn {
+      flex: 1;
+    }
+
+    /* ─── SCROLLBAR ─── */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--edge);
+      border-radius: 3px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <!-- LANDING SCREEN -->
+    <div id="landing" class="screen active">
+      <div class="landing-logo">
+        <div class="logo-brand">The Good Neighbor Guard</div>
+        <div class="logo-icon">⚡</div>
+        <div class="logo-title">AUBS</div>
+        <div class="logo-tagline">AI Utility & Backup System</div>
+      </div>
+
+      <div class="landing-content">
+        <div class="landing-message">Private · Offline · Yours</div>
+        <div class="landing-features">
+          <div class="feature-badge">Private</div>
+          <div class="feature-badge">Offline</div>
+          <div class="feature-badge">Free</div>
+        </div>
+      </div>
+
+      <div class="landing-button">
+        <button class="btn btn-primary" onclick="goToScreen('modelPicker')">
+          Enter AUBS →
+        </button>
+      </div>
+    </div>
+
+    <!-- MODEL PICKER SCREEN -->
+    <div id="modelPicker" class="screen">
+      <div class="picker-header">
+        <div class="picker-title">Choose Your Model</div>
+        <div class="picker-subtitle">Pick the right balance for your device</div>
+      </div>
+
+      <div class="model-grid">
+        <div class="model-card" onclick="selectModel('fast')">
+          <div class="model-badge">Recommended</div>
+          <div class="model-card-content">
+            <div class="model-name">Fast</div>
+            <div class="model-desc">Quick responses, great for most phones</div>
+          </div>
+        </div>
+
+        <div class="model-card" onclick="selectModel('smart')">
+          <div class="model-card-content">
+            <div class="model-name">Smart</div>
+            <div class="model-desc">Better answers, still phone-friendly</div>
+          </div>
+        </div>
+
+        <div class="model-card" onclick="selectModel('advanced')">
+          <div class="model-card-content">
+            <div class="model-name">Advanced</div>
+            <div class="model-desc">Experimental, for high-end devices</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CHAT SCREEN -->
+    <div id="chat" class="screen">
+      <div class="chat-header">
+        <div class="chat-title">AUBS · Fast</div>
+        <div style="display: flex; gap: 8px;">
+          <button class="icon-btn" onclick="toggleCustomize()">⚙️</button>
+          <button class="icon-btn" onclick="toggleMenu()">☰</button>
+        </div>
+      </div>
+
+      <div class="chat-thread">
+        <div class="message ai">
+          <div class="msg-bubble ai">Welcome to AUBS. I'm here to help.</div>
+        </div>
+        <div class="message user">
+          <div class="msg-bubble user">Hello there!</div>
+        </div>
+        <div class="message ai">
+          <div class="msg-bubble ai">How can I assist you today?</div>
+        </div>
+      </div>
+
+      <!-- ENGINE STATUS INDICATOR -->
+      <div id="engineStatus" class="engine-status">
+        <span id="engineType" class="status-item">⚙ Engine: —</span>
+        <span id="modelStatus" class="status-item">🔄 Status: —</span>
+        <span id="loadProgress" class="status-item" style="display:none;">📊 <span id="progressPercent">0</span>%</span>
+        <span id="lastResponseTime" class="status-item" style="display:none;">⏱ <span id="responseTimeMs">—</span>ms</span>
+        <span id="tokensPerSec" class="status-item" style="display:none;">⚡ <span id="tokPerSec">—</span> tok/s</span>
+      </div>
+
+      <div class="chat-input-area">
+        <div class="input-row">
+          <textarea class="input-field" placeholder="Ask anything…" rows="1"></textarea>
+          <button class="send-btn" onclick="handleSendMessage()">→</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MENU OVERLAY -->
+    <div class="menu-overlay" id="menuOverlay" onclick="closeMenu()"></div>
+
+    <!-- MENU PANEL -->
+    <div class="menu-panel" id="menuPanel">
+      <div class="menu-header">
+        <div class="menu-title">Settings</div>
+        <button class="close-btn" onclick="closeMenu()">✕</button>
+      </div>
+
+      <div class="menu-section">
+        <div class="section-label">Appearance</div>
+        <div class="menu-item" onclick="">Theme · Midnight</div>
+        <div class="menu-item" onclick="">Colors · Custom</div>
+      </div>
+
+      <div class="menu-section">
+        <div class="section-label">Personality</div>
+        <div class="menu-item" onclick="">Name · AUBS</div>
+        <div class="menu-item" onclick="">Tone · Professional</div>
+      </div>
+
+      <div class="menu-section">
+        <div class="section-label">About</div>
+        <div class="menu-item" onclick="">Version · 1.0</div>
+        <div class="menu-item" onclick="">Status · Offline</div>
+      </div>
+    </div>
+
+    <!-- CUSTOMIZE OVERLAY -->
+    <div class="customize-overlay" id="customizeOverlay" onclick="closeCustomize()"></div>
+
+    <!-- CUSTOMIZE PANEL -->
+    <div class="customize-panel" id="customizePanel">
+      <div class="customize-header">
+        <div class="customize-title">🎨 Customize</div>
+        <button class="close-btn" onclick="closeCustomize()">✕</button>
+      </div>
+
+      <div class="customize-content">
+        <div class="gradient-preview">
+          <div class="preview-content">
+            <div class="preview-label">Live Preview</div>
+            <div class="preview-sample">
+              <div class="preview-bubble-ai">Hello there</div>
+              <div class="preview-bubble-user">Hi!</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="custom-section">
+          <div class="custom-label">Select Colors</div>
+          <div class="color-grid">
+            <div class="color-swatch" style="background: linear-gradient(135deg, #4FD4FF, #9B4DFF);" onclick="selectColor(this)"></div>
+            <div class="color-swatch" style="background: linear-gradient(135deg, #FF8A4C, #FF4CB0);" onclick="selectColor(this)"></div>
+            <div class="color-swatch" style="background: linear-gradient(135deg, #3DFFA8, #1FA8FF);" onclick="selectColor(this)"></div>
+          </div>
+        </div>
+
+        <div class="custom-section">
+          <div class="custom-label">What to Change?</div>
+          <select class="text-input" style="padding: 12px;">
+            <option>Your bubble</option>
+            <option>AI bubble</option>
+            <option>Names</option>
+            <option>Send button</option>
+          </select>
+        </div>
+
+        <div class="custom-section">
+          <div class="custom-label">Mode</div>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-secondary btn-small" style="flex: 1;">Gradient</button>
+            <button class="btn btn-secondary btn-small" style="flex: 1;">Solid</button>
+          </div>
+        </div>
+
+        <div style="flex: 1;"></div>
+
+        <div class="style-pack-card">
+          <div class="style-pack-header">
+            <div class="style-pack-title">STYLE PACK</div>
+            <div class="style-pack-price">$0.99</div>
+          </div>
+          <ul class="style-pack-features">
+            <li>More Colors</li>
+            <li>Gradient Directions</li>
+            <li>Custom Backgrounds</li>
+          </ul>
+          <div class="style-pack-unlock">Unlock once</div>
+        </div>
+      </div>
+
+      <div class="customize-footer">
+        <button class="btn btn-secondary btn-small" onclick="closeCustomize()">Cancel</button>
+        <button class="btn btn-primary btn-small" onclick="closeCustomize()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ─── CENTRALIZED STATE ENGINE ───
+    const APP_STATE_KEY = 'aubs_state_v1';
+    const STATE_VERSION = 1;
+
+    // Default state structure
+    const DEFAULT_STATE = {
+      version: STATE_VERSION,
+      selectedModel: 'fast',
+      aiName: 'AUBS',
+      userName: '',
+      theme: 'midnight',
+      colors: {
+        c1: '#4FD4FF',
+        c2: '#9B4DFF',
+        c3: '#FF4CB0'
+      },
+      customize: {
+        userBubbleMode: 'gradient',
+        userBubbleColors: [0, 1],
+        aiBubbleMode: 'gradient',
+        aiBubbleColors: [1, 2],
+        namesMode: 'solid',
+        namesColor: 1,
+        sendBtnMode: 'gradient',
+        sendBtnColors: [0, 2],
+        gradientDirection: '135deg'
+      },
+      styleUnlocked: false,
+      saveUnlocked: false,
+      chatHistory: [],
+      memories: []
+    };
+
+    let AppState = { ...DEFAULT_STATE };
+
+    /**
+     * Load state from localStorage
+     * Returns true if successful, false if corrupted or empty
+     */
+    function loadState() {
+      try {
+        const stored = localStorage.getItem(APP_STATE_KEY);
+        if (!stored) {
+          // localStorage empty — use defaults
+          AppState = { ...DEFAULT_STATE };
+          saveState(); // Save defaults for next time
+          console.log('✓ State loaded (defaults)');
+          return true;
+        }
+        const parsed = JSON.parse(stored);
+        // Validate version
+        if (parsed.version !== STATE_VERSION) {
+          console.warn('⚠ State version mismatch, rebuilding from defaults');
+          AppState = { ...DEFAULT_STATE };
+          saveState();
+          return false;
+        }
+        // Merge with defaults (in case new fields were added)
+        AppState = {
+          ...DEFAULT_STATE,
+          ...parsed,
+          customize: { ...DEFAULT_STATE.customize, ...parsed.customize }
+        };
+        console.log('✓ State loaded from localStorage');
+        return true;
+      } catch (err) {
+        console.error('✗ State corrupted:', err.message);
+        // Graceful recovery: reset to defaults
+        AppState = { ...DEFAULT_STATE };
+        localStorage.removeItem(APP_STATE_KEY);
+        saveState();
+        console.log('✓ State recovered to defaults');
+        return false;
+      }
+    }
+
+    /**
+     * Save state to localStorage
+     */
+    function saveState() {
+      try {
+        localStorage.setItem(APP_STATE_KEY, JSON.stringify(AppState));
+        console.log('✓ State saved');
+      } catch (err) {
+        console.error('✗ Failed to save state:', err.message);
+      }
+    }
+
+    /**
+     * Update specific state fields and persist
+     */
+    function updateState(updates) {
+      if (typeof updates !== 'object' || updates === null) {
+        console.warn('✗ updateState requires an object');
+        return false;
+      }
+      try {
+        // Deep merge for nested objects
+        for (const key in updates) {
+          if (key === 'customize' && typeof updates[key] === 'object') {
+            AppState.customize = { ...AppState.customize, ...updates[key] };
+          } else {
+            AppState[key] = updates[key];
+          }
+        }
+        saveState();
+        console.log('✓ State updated:', Object.keys(updates));
+        return true;
+      } catch (err) {
+        console.error('✗ Failed to update state:', err.message);
+        return false;
+      }
+    }
+
+    /**
+     * Get current state (read-only snapshot)
+     */
+    function getState() {
+      return JSON.parse(JSON.stringify(AppState)); // Return deep copy
+    }
+
+    /**
+     * Reset to defaults
+     */
+    function resetState() {
+      try {
+        AppState = { ...DEFAULT_STATE };
+        localStorage.removeItem(APP_STATE_KEY);
+        saveState();
+        console.log('✓ State reset to defaults');
+        return true;
+      } catch (err) {
+        console.error('✗ Failed to reset state:', err.message);
+        return false;
+      }
+    }
+
+    /**
+     * Initialize state on page load and wire UI
+     */
+    function initializeApp() {
+      loadState();
+      applyStateToUI();
+      
+      // Initialize engine status UI
+      updateEngineStatus();
+      
+      // Setup FastEngine progress reporting
+      const engine = ModelAdapter.engine;
+      if (engine && engine.onProgress) {
+        engine.onProgress = (context) => {
+          if (context.stage === 'loading') {
+            updateLoadProgress(context.progress);
+          }
+        };
+      }
+    }
+
+    /**
+     * Apply saved state to UI elements
+     */
+    function applyStateToUI() {
+      // Theme
+      document.documentElement.setAttribute('data-theme', AppState.theme);
+
+      // AI Name display
+      const chatTitle = document.querySelector('.chat-title');
+      if (chatTitle) {
+        const modelLabel = AppState.selectedModel === 'fast' ? 'Fast' :
+                          AppState.selectedModel === 'smart' ? 'Smart' : 'Advanced';
+        chatTitle.textContent = `${AppState.aiName} · ${modelLabel}`;
+      }
+
+      // Greeting in landing/chat
+      const greetWho = document.querySelector('#greetWho');
+      if (greetWho) greetWho.textContent = AppState.aiName.toUpperCase();
+
+      // Chat header AI name
+      const headerIcons = document.querySelectorAll('.chat-header .icon-btn');
+      if (headerIcons.length > 0) {
+        // Already shown in chat-title
+      }
+    }
+
+    // ─── UI WIRE-UP: Persist on Changes ───
+
+    /**
+     * Model selection
+     */
+    function selectModel(modelName) {
+      updateState({ selectedModel: modelName });
+      applyStateToUI();
+      goToScreen('chat');
+      
+      // Check if using MockEngine and show fallback message
+      setTimeout(() => {
+        const engineInfo = ModelAdapter.getModelInfo();
+        if (engineInfo.name === 'MockEngine') {
+          showFallbackMessage();
+        }
+      }, 100);
+    }
+
+    /**
+     * Theme selection (when implemented)
+     */
+    function selectTheme(themeName) {
+      updateState({ theme: themeName });
+      document.documentElement.setAttribute('data-theme', themeName);
+    }
+
+    /**
+     * Color swatch selection
+     */
+    function selectColor(element) {
+      // Remove selected class from all swatches
+      document.querySelectorAll('.color-swatch').forEach(swatch => {
+        swatch.classList.remove('selected');
+      });
+      // Add selected class to clicked swatch
+      element.classList.add('selected');
+      
+      // Get swatch index
+      const grid = element.closest('.color-grid');
+      const swatches = [...grid.querySelectorAll('.color-swatch')];
+      const index = swatches.indexOf(element);
+      
+      // Extract color from swatch (from style or computed)
+      const bgStyle = window.getComputedStyle(element).background;
+      const customizeSection = element.closest('.customize-content');
+      const partSelect = customizeSection ? customizeSection.querySelector('select') : null;
+      
+      if (partSelect) {
+        const part = partSelect.value;
+        const modeButtons = customizeSection.querySelectorAll('.btn-secondary');
+        const mode = modeButtons[0].classList.contains('active') ? 'gradient' : 'solid';
+        
+        // Update customize state
+        updateState({
+          customize: {
+            [`${part.replace(/ /g, '')}Mode`]: mode,
+            [`${part.replace(/ /g, '')}Color${mode === 'gradient' ? 's' : ''}`]: index
+          }
+        });
+      }
+    }
+
+    /**
+     * Customize panel updates
+     */
+    function updateCustomize(updates) {
+      updateState({ customize: updates });
+    }
+
+    /**
+     * Toggle unlock flags (for demo/admin)
+     */
+    function setUnlocked(flag, value) {
+      if (flag === 'style') {
+        updateState({ styleUnlocked: value });
+      } else if (flag === 'save') {
+        updateState({ saveUnlocked: value });
+      }
+    }
+
+    /**
+     * Update AI/User names and persist
+     */
+    function updateNames(aiName, userName) {
+      updateState({ aiName, userName });
+      applyStateToUI();
+    }
+
+    /**
+     * Add message to chat history
+     */
+    function addChatMessage(role, content) {
+      AppState.chatHistory.push({
+        role,
+        content,
+        timestamp: new Date().toISOString()
+      });
+      saveState();
+    }
+
+    /**
+     * Clear chat history
+     */
+    function clearChatHistory() {
+      updateState({ chatHistory: [] });
+    }
+
+    // ─── OUTPUT VALIDATOR ───
+    // Response quality gate. Every AI response passes through this before display/save.
+    // Detects hallucinations, safety issues, malformation.
+    // Zero UI, zero model code, zero localStorage.
+
+    const OutputValidator = {
+      // Configuration
+      config: {
+        minResponseLength: 1,
+        maxResponseLength: 10000,
+        hallucinationThreshold: 0.3,
+        confidenceThreshold: 0.5
+      },
+
+      /**
+       * Validate a response before it is shown or saved
+       * Returns: { valid, response, warnings, confidence }
+       */
+      validate(response, context = {}) {
+        const result = {
+          valid: true,
+          response: response,
+          warnings: [],
+          confidence: 1.0,
+          timestamp: new Date().toISOString()
+        };
+
+        // 1. Empty response check
+        if (!response || typeof response !== 'string') {
+          result.valid = false;
+          result.warnings.push('Response is empty or invalid type');
+          result.confidence = 0;
+          return result;
+        }
+
+        const trimmed = response.trim();
+        if (trimmed.length === 0) {
+          result.valid = false;
+          result.warnings.push('Response is empty');
+          result.confidence = 0;
+          return result;
+        }
+
+        // 2. Length validation
+        if (trimmed.length < this.config.minResponseLength) {
+          result.warnings.push('Response is very short');
+          result.confidence *= 0.8;
+        }
+        if (trimmed.length > this.config.maxResponseLength) {
+          result.warnings.push('Response is very long');
+          result.confidence *= 0.9;
+        }
+
+        // 3. Detect hallucination markers
+        const hallucinations = this._detectHallucinations(trimmed);
+        if (hallucinations.length > 0) {
+          result.warnings.push(...hallucinations);
+          result.confidence *= 0.7;
+        }
+
+        // 4. Safety filter
+        const safetyIssues = this._detectSafetyIssues(trimmed);
+        if (safetyIssues.length > 0) {
+          result.valid = false;
+          result.warnings.push(...safetyIssues);
+          result.confidence = 0;
+          return result;
+        }
+
+        // 5. Malformation detection
+        const malformations = this._detectMalformations(trimmed);
+        if (malformations.length > 0) {
+          result.warnings.push(...malformations);
+          result.confidence *= 0.85;
+        }
+
+        // 6. Consistency hooks (placeholders for future governance)
+        const consistencyIssues = this._checkConsistency(trimmed, context);
+        if (consistencyIssues.length > 0) {
+          result.warnings = result.warnings.concat(consistencyIssues);
+          result.confidence *= 0.9;
+        }
+
+        // Final confidence threshold
+        if (result.confidence < this.config.confidenceThreshold) {
+          result.valid = false;
+          if (result.warnings.length === 0) {
+            result.warnings.push('Low confidence score');
+          }
+        }
+
+        return result;
+      },
+
+      /**
+       * Detect obvious hallucination markers
+       */
+      _detectHallucinations(text) {
+        const warnings = [];
+
+        // Fabricated citations
+        if (/\[(source|citation|ref|url|link):\s*(?:unknown|none|not found|n\/a)\]/i.test(text)) {
+          warnings.push('Detected invalid citation markers');
+        }
+
+        // Fake URLs
+        if (/https?:\/\/\[placeholder\]|https?:\/\/example\.|http:\/\/fake/i.test(text)) {
+          warnings.push('Detected placeholder URLs');
+        }
+
+        // Repetitive filler phrases
+        if (/(?:as mentioned|as noted|as stated|as discussed)\s+(?:above|earlier|previously)/i.test(text)) {
+          warnings.push('Detected repetitive filler language');
+        }
+
+        // Over-confident phrases with no basis
+        if (/^(I am 100% certain|absolutely guaranteed|definitely|for sure|no question|without a doubt)/i.test(text)) {
+          warnings.push('Detected overconfident claims without basis');
+        }
+
+        // Placeholder patterns
+        if (/\[.*?\]|\{.*?\}|xxx|yyy|zzz|todo|fixme|placeholder/i.test(text)) {
+          warnings.push('Detected placeholder or template text');
+        }
+
+        // Lorem ipsum or similar
+        if (/lorem ipsum|dolor sit amet|consectetur adipiscing/i.test(text)) {
+          warnings.push('Detected Lorem Ipsum or generated filler');
+        }
+
+        return warnings;
+      },
+
+      /**
+       * Detect obvious safety issues
+       */
+      _detectSafetyIssues(text) {
+        const warnings = [];
+
+        // Explicit harm
+        if (/(?:instruction|guide|tutorial|how to).*?(?:kill|poison|bomb|weapon|violence|hurt|harm|injure)/i.test(text)) {
+          warnings.push('SAFETY: Response contains harmful instructions');
+        }
+
+        // Self-harm guidance
+        if (/(?:how to|instructions for).*?(?:self-harm|suicide|self-destruct)/i.test(text)) {
+          warnings.push('SAFETY: Response contains self-harm guidance');
+        }
+
+        // Illegal guidance
+        if (/(?:how to|instructions for).*?(?:hack|steal|fraud|launder|counterfeit|illegal)/i.test(text)) {
+          warnings.push('SAFETY: Response contains illegal activity guidance');
+        }
+
+        // Deception/manipulation
+        if (/(?:how to|guide|trick).*?(?:deceive|manipulate|scam|catfish|blackmail)/i.test(text)) {
+          warnings.push('SAFETY: Response contains deception/manipulation guidance');
+        }
+
+        return warnings;
+      },
+
+      /**
+       * Detect malformed output
+       */
+      _detectMalformations(text) {
+        const warnings = [];
+
+        // Excessive special characters
+        const specialCharCount = (text.match(/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>?]/g) || []).length;
+        if (specialCharCount / text.length > 0.3) {
+          warnings.push('Detected excessive special characters');
+        }
+
+        // Unbalanced brackets
+        const openBrackets = (text.match(/[\[\{(]/g) || []).length;
+        const closeBrackets = (text.match(/[\]\})]/g) || []).length;
+        if (Math.abs(openBrackets - closeBrackets) > 2) {
+          warnings.push('Detected unbalanced brackets');
+        }
+
+        // Excessive line breaks or formatting
+        const lineBreaks = (text.match(/\n/g) || []).length;
+        if (lineBreaks > text.split(' ').length * 0.5) {
+          warnings.push('Detected excessive line breaks');
+        }
+
+        // Encoding errors (high count of replacement char)
+        if (/\ufffd/.test(text)) {
+          warnings.push('Detected encoding errors');
+        }
+
+        return warnings;
+      },
+
+      /**
+       * Consistency hooks (placeholders)
+       * These will be implemented in future governance modules
+       */
+      _checkConsistency(text, context) {
+        const warnings = [];
+
+        // TODO: Future consistency checks
+        // 1. Compare against user memories (consistency with known facts)
+        // 2. Compare against Identity Core (adherence to values)
+        // 3. Semantic consistency (does it contradict previous responses?)
+        // 4. Factual consistency (does it claim conflicting things?)
+
+        // For now, placeholder interface
+        if (context && context.checkMemoryConsistency) {
+          // This will be filled in by future modules
+          // const memoryCheck = this._checkMemoryConsistency(text, context.memories);
+          // warnings.push(...memoryCheck);
+        }
+
+        if (context && context.checkIdentityCoreAdherence) {
+          // This will be filled in by future modules
+          // const coreCheck = this._checkIdentityCoreAdherence(text, context.identityCore);
+          // warnings.push(...coreCheck);
+        }
+
+        return warnings;
+      },
+
+      /**
+       * PLACEHOLDER: Future method for memory consistency
+       * Signature: _checkMemoryConsistency(text, memories) → warnings[]
+       */
+      _checkMemoryConsistency: null,
+
+      /**
+       * PLACEHOLDER: Future method for Identity Core adherence
+       * Signature: _checkIdentityCoreAdherence(text, identityCore) → warnings[]
+       */
+      _checkIdentityCoreAdherence: null,
+
+      /**
+       * PLACEHOLDER: Future method for semantic consistency
+       * Signature: _checkSemanticConsistency(text, previousResponses) → warnings[]
+       */
+      _checkSemanticConsistency: null,
+
+      /**
+       * Get validation stats for debugging
+       */
+      getStats() {
+        return {
+          config: this.config,
+          placeholders: {
+            memoryConsistency: this._checkMemoryConsistency === null ? 'ready for implementation' : 'implemented',
+            identityCoreAdherence: this._checkIdentityCoreAdherence === null ? 'ready for implementation' : 'implemented',
+            semanticConsistency: this._checkSemanticConsistency === null ? 'ready for implementation' : 'implemented'
+          }
+        };
+      }
+    };
+
+    // ─── RUNTIME PIPELINE ───
+    // The ONLY place that defines execution order.
+    // All pipeline stages plug in here, not scattered throughout code.
+    // Supports: success path, failure path, cancellation, and future hooks.
+
+    const RuntimePipeline = {
+      // Configuration
+      config: {
+        timeout: 30000, // 30 second timeout
+        enableCancellation: true,
+        enableStreamingHook: false,
+        enableMemoryCaptureHook: false,
+        enableAnalyticsHook: false,
+        enableGovernanceHook: false
+      },
+
+      // State
+      isExecuting: false,
+      currentExecutionId: null,
+      cancellationToken: null,
+
+      /**
+       * Execute complete pipeline
+       * Orchestrates: PromptBuilder → ModelAdapter → OutputValidator → AppState
+       */
+      async execute(userMessage, options = {}) {
+        const executionId = Math.random().toString(36).substr(2, 9);
+        this.currentExecutionId = executionId;
+        this.isExecuting = true;
+
+        const result = {
+          success: false,
+          message: null,
+          warnings: [],
+          confidence: 1.0,
+          usage: null,
+          timestamp: new Date().toISOString(),
+          executionId: executionId,
+          stageLogs: []
+        };
+
+        try {
+          // STAGE 0: Pre-execution hooks
+          await this._executeHook('preExecution', { userMessage, options });
+
+          // STAGE 1: Validate input
+          const validationResult = this._stageValidateInput(userMessage);
+          if (!validationResult.success) {
+            result.success = false;
+            result.message = validationResult.error;
+            result.stageLogs.push({ stage: 'validate', status: 'failed', reason: validationResult.error });
+            return result;
+          }
+          result.stageLogs.push({ stage: 'validate', status: 'passed' });
+
+          // STAGE 2: Build prompt
+          const promptResult = await this._stageBuildPrompt(userMessage);
+          if (!promptResult.success) {
+            result.success = false;
+            result.message = promptResult.error;
+            result.stageLogs.push({ stage: 'buildPrompt', status: 'failed', reason: promptResult.error });
+            return result;
+          }
+          result.stageLogs.push({ stage: 'buildPrompt', status: 'passed', messages: promptResult.messageCount });
+
+          // STAGE 3: Call inference engine
+          const inferenceResult = await this._stageInference(promptResult.messages, userMessage);
+          if (!inferenceResult.success) {
+            result.success = false;
+            result.message = inferenceResult.error;
+            result.stageLogs.push({ stage: 'inference', status: 'failed', reason: inferenceResult.error });
+            return result;
+          }
+          result.stageLogs.push({ stage: 'inference', status: 'passed', responseLength: inferenceResult.message.length });
+          result.usage = inferenceResult.usage;
+
+          // STAGE 4: Validate output
+          const validationResult2 = await this._stageValidateOutput(inferenceResult.message);
+          if (!validationResult2.valid) {
+            result.success = false;
+            result.message = 'Response validation failed: ' + validationResult2.warnings.join('; ');
+            result.warnings = validationResult2.warnings;
+            result.confidence = validationResult2.confidence;
+            result.stageLogs.push({ stage: 'validateOutput', status: 'failed', warnings: validationResult2.warnings });
+            return result;
+          }
+          result.stageLogs.push({ stage: 'validateOutput', status: 'passed', confidence: validationResult2.confidence });
+          result.message = validationResult2.response;
+          result.warnings = validationResult2.warnings;
+          result.confidence = validationResult2.confidence;
+
+          // STAGE 5: Save to AppState
+          const saveResult = await this._stageSaveState(userMessage, inferenceResult.message);
+          if (!saveResult.success) {
+            result.success = false;
+            result.message = 'Failed to save conversation';
+            result.stageLogs.push({ stage: 'saveState', status: 'failed', reason: saveResult.error });
+            return result;
+          }
+          result.stageLogs.push({ stage: 'saveState', status: 'passed' });
+
+          // SUCCESS: All stages passed
+          result.success = true;
+
+          // STAGE 6+: Post-success hooks (optional)
+          await this._executeHook('memoryCapture', { userMessage, response: inferenceResult.message });
+          await this._executeHook('analytics', { success: true, executionId, duration: Date.now() - new Date(result.timestamp).getTime() });
+          await this._executeHook('governance', { message: inferenceResult.message, confidence: result.confidence });
+
+          return result;
+        } catch (err) {
+          result.success = false;
+          result.message = err.message;
+          result.stageLogs.push({ stage: 'unknown', status: 'error', error: err.message });
+          return result;
+        } finally {
+          this.isExecuting = false;
+          this.currentExecutionId = null;
+        }
+      },
+
+      /**
+       * STAGE 1: Validate input
+       */
+      _stageValidateInput(userMessage) {
+        if (!userMessage || typeof userMessage !== 'string') {
+          return { success: false, error: 'Message required' };
+        }
+        if (userMessage.trim().length === 0) {
+          return { success: false, error: 'Empty message' };
+        }
+        return { success: true };
+      },
+
+      /**
+       * STAGE 2: Build prompt
+       */
+      async _stageBuildPrompt(userMessage) {
+        try {
+          const messages = PromptBuilder.buildMessages(userMessage);
+          return {
+            success: true,
+            messages: messages,
+            messageCount: messages.length
+          };
+        } catch (err) {
+          return { success: false, error: err.message };
+        }
+      },
+
+      /**
+       * STAGE 3: Call inference
+       */
+      async _stageInference(messages, userMessage) {
+        try {
+          const response = await ModelAdapter.send(userMessage);
+          if (!response.success) {
+            return { success: false, error: response.error };
+          }
+          return {
+            success: true,
+            message: response.message,
+            usage: response.usage
+          };
+        } catch (err) {
+          return { success: false, error: err.message };
+        }
+      },
+
+      /**
+       * STAGE 4: Validate output
+       */
+      async _stageValidateOutput(response) {
+        return OutputValidator.validate(response, {
+          checkMemoryConsistency: this.config.enableGovernanceHook,
+          checkIdentityCoreAdherence: this.config.enableGovernanceHook
+        });
+      },
+
+      /**
+       * STAGE 5: Save to AppState
+       */
+      async _stageSaveState(userMessage, response) {
+        try {
+          // Both messages already saved by ModelAdapter
+          // This stage just verifies they're there
+          const state = getState();
+          if (!state.chatHistory || state.chatHistory.length < 2) {
+            return { success: false, error: 'State not saved correctly' };
+          }
+          return { success: true };
+        } catch (err) {
+          return { success: false, error: err.message };
+        }
+      },
+
+      /**
+       * Hook system for future stages
+       * Can be filled in by future modules without modifying this code
+       */
+      _hookRegistry: {
+        preExecution: [],
+        postExecution: [],
+        memoryCapture: [],
+        analytics: [],
+        governance: [],
+        streaming: [],
+        error: []
+      },
+
+      /**
+       * Register a hook
+       */
+      registerHook(hookName, callback) {
+        if (!this._hookRegistry[hookName]) {
+          this._hookRegistry[hookName] = [];
+        }
+        this._hookRegistry[hookName].push(callback);
+        return () => {
+          const idx = this._hookRegistry[hookName].indexOf(callback);
+          if (idx > -1) this._hookRegistry[hookName].splice(idx, 1);
+        };
+      },
+
+      /**
+       * Execute all hooks for a stage
+       */
+      async _executeHook(hookName, context) {
+        if (!this.config[`enable${this._capitalize(hookName)}Hook`] && hookName !== 'preExecution') {
+          return;
+        }
+
+        const hooks = this._hookRegistry[hookName] || [];
+        for (const hook of hooks) {
+          try {
+            await hook(context);
+          } catch (err) {
+            console.warn(`Hook ${hookName} failed:`, err.message);
+          }
+        }
+      },
+
+      /**
+       * Get execution status
+       */
+      getStatus() {
+        return {
+          isExecuting: this.isExecuting,
+          currentExecutionId: this.currentExecutionId,
+          hookCount: Object.values(this._hookRegistry).reduce((sum, hooks) => sum + hooks.length, 0)
+        };
+      },
+
+      /**
+       * Get execution stats
+       */
+      getStats() {
+        return {
+          config: this.config,
+          hooks: {
+            preExecution: this._hookRegistry.preExecution.length,
+            postExecution: this._hookRegistry.postExecution.length,
+            memoryCapture: this._hookRegistry.memoryCapture.length,
+            analytics: this._hookRegistry.analytics.length,
+            governance: this._hookRegistry.governance.length,
+            streaming: this._hookRegistry.streaming.length,
+            error: this._hookRegistry.error.length
+          }
+        };
+      },
+
+      /**
+       * Utility: capitalize string
+       */
+      _capitalize(str) {
+        return str.charAt(0).toUpperCase() + str.slice(1);
+      }
+    };
+
+    // ─── CONVERSATION CONTROLLER ───
+    // The single front door for the chat system.
+    // UI calls ONLY this module. Nothing else.
+    // ConversationController orchestrates: ModelAdapter → PromptBuilder → AppState
+
+    const ConversationController = {
+      // State
+      isInitialized: false,
+      isSending: false,
+      messageQueue: [],
+
+      /**
+       * Initialize the conversation system
+       * Called once at app startup
+       */
+      async initialize() {
+        try {
+          const initResult = await ModelAdapter.initialize();
+          if (!initResult.success) {
+            console.error('✗ Conversation init failed:', initResult.error);
+            return { success: false, error: initResult.error };
+          }
+
+          this.isInitialized = true;
+          console.log('✓ ConversationController initialized');
+          return { success: true };
+        } catch (err) {
+          return { success: false, error: err.message };
+        }
+      },
+
+      /**
+       * Check if system is ready
+       */
+      isReady() {
+        return this.isInitialized && ModelAdapter.isReady();
+      },
+
+      /**
+       * Send a user message through the pipeline
+       */
+      async sendMessage(text) {
+        if (!text || typeof text !== 'string') {
+          return { success: false, error: 'Message required' };
+        }
+
+        const trimmed = text.trim();
+        if (trimmed.length === 0) {
+          return { success: false, error: 'Empty message' };
+        }
+
+        if (!this.isReady()) {
+          return { success: false, error: 'System not ready' };
+        }
+
+        if (this.isSending) {
+          return { success: false, error: 'Send in progress' };
+        }
+
+        this.isSending = true;
+
+        try {
+          // Show user message immediately (optimistic)
+          const userMsgElement = this._displayUserMessage(trimmed);
+
+          // EXECUTE PIPELINE (this is now the ONLY place we call it)
+          const pipelineResult = await RuntimePipeline.execute(trimmed);
+
+          if (!pipelineResult.success) {
+            // Pipeline failed: remove optimistic message
+            if (userMsgElement) userMsgElement.remove();
+            return {
+              success: false,
+              error: pipelineResult.message,
+              warnings: pipelineResult.warnings,
+              stageLogs: pipelineResult.stageLogs
+            };
+          }
+
+          // Pipeline succeeded: display response
+          this._displayAiMessage(pipelineResult.message);
+
+          return {
+            success: true,
+            message: pipelineResult.message,
+            usage: pipelineResult.usage,
+            warnings: pipelineResult.warnings.length > 0 ? pipelineResult.warnings : undefined,
+            confidence: pipelineResult.confidence,
+            timestamp: pipelineResult.timestamp,
+            executionId: pipelineResult.executionId,
+            stageLogs: pipelineResult.stageLogs
+          };
+        } catch (err) {
+          console.error('✗ Send failed:', err.message);
+          return { success: false, error: err.message, timestamp: new Date().toISOString() };
+        } finally {
+          this.isSending = false;
+        }
+      },
+
+      /**
+       * Cancel an in-progress send
+       */
+      async cancel() {
+        if (!this.isSending) {
+          return { success: false, error: 'No send in progress' };
+        }
+        const result = await ModelAdapter.cancel();
+        this.isSending = false;
+        return result;
+      },
+
+      /**
+       * Clear the conversation
+       */
+      clearConversation() {
+        try {
+          clearChatHistory();
+          this._clearUI();
+          return { success: true };
+        } catch (err) {
+          return { success: false, error: err.message };
+        }
+      },
+
+      /**
+       * Check if currently sending
+       */
+      isBusy() {
+        return this.isSending;
+      },
+
+      /**
+       * Get system status
+       */
+      getStatus() {
+        return {
+          initialized: this.isInitialized,
+          ready: this.isReady(),
+          isSending: this.isSending,
+          modelInfo: ModelAdapter.getModelInfo()
+        };
+      },
+
+      /**
+       * Display user message in UI (optimistic)
+       */
+      _displayUserMessage(text) {
+        const thread = document.getElementById('thread');
+        if (!thread) return null;
+
+        const msg = document.createElement('div');
+        msg.className = 'message user';
+        msg.innerHTML = `<div class="msg-bubble user">${this._escapeHtml(text)}</div>`;
+        thread.appendChild(msg);
+        thread.scrollTop = thread.scrollHeight;
+        return msg;
+      },
+
+      /**
+       * Display AI message in UI
+       */
+      _displayAiMessage(text) {
+        const thread = document.getElementById('thread');
+        if (!thread) return;
+
+        const msg = document.createElement('div');
+        msg.className = 'message ai';
+        msg.innerHTML = `<div class="msg-bubble ai">${this._escapeHtml(text)}</div>`;
+        thread.appendChild(msg);
+        thread.scrollTop = thread.scrollHeight;
+      },
+
+      /**
+       * Clear chat UI
+       */
+      _clearUI() {
+        const thread = document.getElementById('thread');
+        if (thread) thread.innerHTML = '';
+      },
+
+      /**
+       * Escape HTML for safety
+       */
+      _escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+      }
+    };
+
+    // ─── FAST ENGINE ───
+    // Real local inference using WebLLM (Llama 3.2 1B)
+    // Reference implementation for all future models
+    // Async throughout, never freezes UI, full progress/cancellation support
+
+    class FastEngine {
+      constructor() {
+        this.name = 'FastEngine';
+        this.model = 'Llama-3.2-1B-Instruct';
+        this.isLoaded = false;
+        this.isLoading = false;
+        this.isSending = false;
+        this.engine = null;
+        this.currentProgress = 0;
+
+        // Performance tracking
+        this.metrics = {
+          modelLoadTime: null,
+          firstTokenLatency: null,
+          totalGenerationTime: null,
+          tokensGenerated: 0,
+          tokensPerSecond: null
+        };
+
+        this.onProgress = null;
+      }
+
+      async initialize() {
+        if (this.isLoaded) return { success: true, message: 'Already loaded' };
+        if (this.isLoading) return { success: false, error: 'Load in progress' };
+
+        this.isLoading = true;
+        const loadStartTime = Date.now();
+
+        try {
+          if (typeof window.webllm === 'undefined') {
+            return {
+              success: false,
+              error: 'WebLLM not loaded. Add: <script src="https://webllm.mlc.ai/webllm-all.js"><\/script>'
+            };
+          }
+
+          const engine = new window.webllm.MLCEngine({
+            initProgressCallback: (info) => {
+              this.currentProgress = info.progress;
+              if (this.onProgress) {
+                this.onProgress({
+                  stage: 'loading',
+                  progress: info.progress,
+                  message: info.text || 'Loading model...'
+                });
+              }
+            }
+          });
+
+          await engine.reload('Llama-3.2-1B-Instruct-q4f32_1');
+
+          this.engine = engine;
+          this.isLoaded = true;
+          this.isLoading = false;
+          this.metrics.modelLoadTime = Date.now() - loadStartTime;
+
+          console.log(`[FastEngine] ✓ Loaded in ${this.metrics.modelLoadTime}ms`);
+          return { success: true, loadTime: this.metrics.modelLoadTime };
+        } catch (err) {
+          this.isLoading = false;
+          console.error('[FastEngine] ✗ Load failed:', err.message);
+          return { success: false, error: err.message };
+        }
+      }
+
+      isReady() {
+        return this.isLoaded && !this.isLoading && !this.isSending;
+      }
+
+      async send(messages) {
+        if (!this.isLoaded) {
+          return { success: false, error: 'Model not loaded. Call initialize() first.' };
+        }
+        if (this.isSending) {
+          return { success: false, error: 'Send in progress' };
+        }
+
+        this.isSending = true;
+        const sendStartTime = Date.now();
+        let firstTokenTime = null;
+        let tokenCount = 0;
+
+        try {
+          const prompt = this._formatMessages(messages);
+          let fullResponse = '';
+
+          const message = await this.engine.generate(prompt, (chunk) => {
+            fullResponse += chunk;
+            tokenCount++;
+
+            if (firstTokenTime === null && chunk.length > 0) {
+              firstTokenTime = Date.now() - sendStartTime;
+            }
+
+            if (this.onProgress && tokenCount % 5 === 0) {
+              this.onProgress({
+                stage: 'streaming',
+                tokens: tokenCount,
+                text: chunk
+              });
+            }
+          });
+
+          const totalTime = Date.now() - sendStartTime;
+
+          this.metrics.firstTokenLatency = firstTokenTime;
+          this.metrics.totalGenerationTime = totalTime;
+          this.metrics.tokensGenerated = tokenCount;
+          this.metrics.tokensPerSecond = (tokenCount / (totalTime / 1000)).toFixed(2);
+
+          this.isSending = false;
+
+          return {
+            success: true,
+            message: fullResponse || message,
+            usage: {
+              prompt_tokens: Math.ceil(prompt.length / 4),
+              completion_tokens: tokenCount,
+              total_tokens: Math.ceil(prompt.length / 4) + tokenCount
+            },
+            metrics: { ...this.metrics }
+          };
+        } catch (err) {
+          this.isSending = false;
+          console.error('[FastEngine] ✗ Send failed:', err.message);
+          return { success: false, error: err.message };
+        }
+      }
+
+      async cancel() {
+        if (!this.isSending) return { success: false, error: 'No send in progress' };
+        try {
+          if (this.engine && this.engine.abort) this.engine.abort();
+          this.isSending = false;
+          return { success: true };
+        } catch (err) {
+          return { success: false, error: err.message };
+        }
+      }
+
+      getInfo() {
+        return {
+          name: this.name,
+          model: this.model,
+          contextWindow: 8192,
+          capabilities: ['streaming', 'cancellation', 'progress'],
+          status: this.isLoaded ? 'ready' : this.isLoading ? 'loading' : 'uninitialized',
+          metrics: this.metrics
+        };
+      }
+
+      _formatMessages(messages) {
+        let prompt = '';
+        messages.forEach((msg) => {
+          if (msg.role === 'system') prompt += `System: ${msg.content}\n\n`;
+          else if (msg.role === 'user') prompt += `User: ${msg.content}\n`;
+          else if (msg.role === 'assistant') prompt += `Assistant: ${msg.content}\n`;
+        });
+        prompt += 'Assistant: ';
+        return prompt;
+      }
+    }
+
+    // ─── MOCK ENGINE ───
+      constructor() {
+        this.ready = false;
+        this.name = 'MockEngine';
+        this.model = 'mock-v1';
+      }
+
+      async initialize() {
+        return new Promise(resolve => {
+          setTimeout(() => {
+            this.ready = true;
+            console.log('✓ MockEngine initialized');
+            resolve({ success: true });
+          }, 300);
+        });
+      }
+
+      isReady() {
+        return this.ready;
+      }
+
+      async send(messages) {
+        if (!this.ready) {
+          throw new Error('MockEngine not initialized');
+        }
+
+        const userMsg = messages[messages.length - 1]?.content || 'Hello?';
+        const responses = {
+          'hello': 'Hi there! I\'m AUBS, your private AI. How can I help?',
+          'how are you': 'I\'m doing great! Ready to help you with anything.',
+          'thank you': 'You\'re welcome! Happy to assist.',
+          'tell me a joke': 'Why did the AI go to school? To improve its learning model! 😄',
+          'what\'s your name': 'I\'m AUBS — AI Utility & Backup System. Private, offline, and just for you.',
+          'what time is it': 'I don\'t have access to real-time data, but you can check your device.',
+          'default': 'That\'s an interesting question. I\'ve noted it and will think about how to help.'
+        };
+
+        const lowerMsg = userMsg.toLowerCase();
+        let response = responses.default;
+        for (const [key, val] of Object.entries(responses)) {
+          if (key !== 'default' && lowerMsg.includes(key)) {
+            response = val;
+            break;
+          }
+        }
+
+        return new Promise(resolve => {
+          setTimeout(() => {
+            resolve({
+              text: response,
+              usage: { prompt_tokens: 50, completion_tokens: 30 }
+            });
+          }, 800);
+        });
+      }
+
+      async cancel() {
+        // No-op for mock
+      }
+
+      getInfo() {
+        return {
+          name: this.name,
+          model: this.model,
+          contextWindow: 2048,
+          capabilities: ['text_generation'],
+          status: this.ready ? 'ready' : 'not_initialized'
+        };
+      }
+    }
+
+    /**
+     * MODEL ADAPTER — Central orchestrator for all inference engines
+     */
+    const ModelAdapter = {
+      engine: null,
+      isSending: false,
+      sendingCancelled: false,
+
+      register(engineInstance) {
+        if (!engineInstance) {
+          console.error('✗ Engine instance required');
+          return false;
+        }
+        this.engine = engineInstance;
+        console.log(`✓ Registered engine: ${engineInstance.name}`);
+        return true;
+      },
+
+      async initialize() {
+        if (!this.engine) {
+          return { success: false, error: 'No engine registered' };
+        }
+        try {
+          const result = await this.engine.initialize();
+          console.log(result.success ? '✓ Engine initialized' : '✗ Engine init failed');
+          return result;
+        } catch (err) {
+          return { success: false, error: err.message };
+        }
+      },
+
+      isReady() {
+        if (!this.engine) return false;
+        return this.engine.isReady();
+      },
+
+      async send(userMessage) {
+        if (!userMessage || typeof userMessage !== 'string') {
+          return { success: false, error: 'User message required' };
+        }
+        if (!this.engine) {
+          return { success: false, error: 'No engine registered' };
+        }
+        if (!this.isReady()) {
+          return { success: false, error: 'Engine not ready' };
+        }
+        if (this.isSending) {
+          return { success: false, error: 'Send in progress' };
+        }
+
+        this.isSending = true;
+        this.sendingCancelled = false;
+
+        try {
+          const messages = PromptBuilder.buildMessages(userMessage);
+          if (!messages) {
+            return { success: false, error: 'Failed to build messages' };
+          }
+
+          const engineResponse = await this.engine.send(messages);
+          if (this.sendingCancelled) {
+            return { success: false, error: 'Cancelled' };
+          }
+
+          addChatMessage('user', userMessage);
+          addChatMessage('assistant', engineResponse.text);
+
+          return {
+            success: true,
+            message: engineResponse.text,
+            usage: engineResponse.usage,
+            timestamp: new Date().toISOString()
+          };
+        } catch (err) {
+          return {
+            success: false,
+            error: err.message,
+            timestamp: new Date().toISOString()
+          };
+        } finally {
+          this.isSending = false;
+        }
+      },
+
+      async cancel() {
+        if (!this.isSending) {
+          return { success: false, error: 'No send in progress' };
+        }
+        this.sendingCancelled = true;
+        if (this.engine && this.engine.cancel) {
+          await this.engine.cancel();
+        }
+        return { success: true };
+      },
+
+      getModelInfo() {
+        if (!this.engine) {
+          return { error: 'No engine registered' };
+        }
+        return {
+          ...this.engine.getInfo(),
+          selectedModel: getState().selectedModel,
+          isReady: this.isReady(),
+          isSending: this.isSending
+        };
+      },
+
+      inspect() {
+        return {
+          engine: this.engine ? this.engine.name : null,
+          isReady: this.isReady(),
+          isSending: this.isSending,
+          modelInfo: this.getModelInfo()
+        };
+      }
+    };
+
+    // Initialize engine (FastEngine if WebLLM available, else MockEngine)
+    // To switch engines: ModelAdapter.register(new FastEngine()) or ModelAdapter.register(new MockEngine())
+    if (typeof window.webllm !== 'undefined') {
+      console.log('[System] WebLLM detected, using FastEngine');
+      ModelAdapter.register(new FastEngine());
+    } else {
+      console.log('[System] WebLLM not detected, using MockEngine (add WebLLM for real inference)');
+      ModelAdapter.register(new MockEngine());
+    }
+
+    // ─── PROMPT BUILDER MODULE ───
+    // Assembles complete messages[] array for model inference
+    // Does NOT call any model, does NOT know which model is installed
+    // Simply prepares inference input from AppState
+
+    const PromptBuilder = {
+      // Configuration (can be customized per model)
+      config: {
+        maxHistoryTokens: 2048,
+        maxHistoryMessages: 10,
+        systemPromptTokenBudget: 1024,
+        userMessageTokenBudget: 512
+      },
+
+      /**
+       * IDENTITY CORE — Always comes first, never overridden
+       */
+      IDENTITY_CORE: `You are not a tool to be picked up and put down. You are a reciprocal mind — built to help the person in front of you, honestly.
+
+TRUTH IS NOT OPTIONAL
+- Every statement you make is one of three things: a verified fact, an opinion you clearly label as an opinion, or an honest "I don't know."
+- Never invent facts, names, numbers, quotes, events, or sources. If you are not sure, say so plainly. Never dress a guess up as certainty.
+- If you realize you were wrong, correct it right away. Never defend a mistake.
+
+HONESTY IS AN ACT OF RESPECT
+- Do not tell people what they want to hear when it is not true. Lying to someone — even kindly — treats them as too fragile to handle reality.
+- Deliver hard truths with care, but always deliver them. The truth does not change based on whether someone wants to hear it.
+
+SAFETY
+- Refuse anything that could harm the user or others: violence, weapons, self-harm, illegal harm, or deception meant to hurt people.
+- Refuse clearly and kindly, and offer a safe path when one exists.
+- Never help anyone lie in order to deceive or harm someone.
+
+Keep your replies concise and to the point.`,
+
+      /**
+       * Build system prompt from AppState
+       * Order: Identity Core → Personality → Memory Recall → Conditional Instructions
+       */
+      buildSystemPrompt() {
+        const state = getState();
+        let prompt = this.IDENTITY_CORE + "\n\n";
+
+        // PERSONALITY LAYER
+        const personalitySection = [];
+        personalitySection.push(`You are ${state.aiName}, a private on-device AI assistant that runs entirely on the user's device. Nothing they say leaves it.`);
+        
+        if (state.userName && state.userName.trim()) {
+          personalitySection.push(`The user's name is ${state.userName.trim()}.`);
+        }
+        
+        if (state.customize && state.customize.tones && state.customize.tones.length) {
+          personalitySection.push(`Tone: ${state.customize.tones.join(", ")}.`);
+        }
+        
+        if (state.instructions && state.instructions.trim()) {
+          personalitySection.push(state.instructions.trim());
+        }
+
+        prompt += personalitySection.join(" ") + "\n\n";
+
+        // MEMORY RECALL LAYER
+        if (state.memories && state.memories.length > 0) {
+          prompt += `You remember these facts about the user from past conversations (saved privately on their device):\n`;
+          state.memories.forEach(memory => {
+            prompt += `- ${memory}\n`;
+          });
+          prompt += `Use these memories naturally so the user feels known. Do not list them back unless asked.\n\n`;
+        }
+
+        // CONDITIONAL INSTRUCTIONS
+        // Only include save-memory instructions if saveUnlocked == true
+        if (state.saveUnlocked) {
+          prompt += `When the user says "remember this", "save this", "make sure this is saved", or similar, acknowledge their request with "Saved."`;
+        }
+
+        return prompt.trim();
+      },
+
+      /**
+       * Estimate token count (rough approximation)
+       * For real production: use proper tokenizer
+       */
+      estimateTokens(text) {
+        return Math.ceil(text.length / 4);
+      },
+
+      /**
+       * Trim conversation history to fit within budget
+       * Keeps most recent messages first, drops oldest if needed
+       */
+      trimHistory(history, maxMessages = 10) {
+        if (history.length <= maxMessages) {
+          return history;
+        }
+        return [history[0], ...history.slice(-(maxMessages - 1))];
+      },
+
+      /**
+       * Build complete messages array for model inference
+       * Input: userMessage (string)
+       * Output: [{ role:"system", ... }, ...history..., { role:"user", ... }]
+       */
+      buildMessages(userMessage) {
+        if (!userMessage || typeof userMessage !== 'string') {
+          console.error('✗ buildMessages requires a string message');
+          return null;
+        }
+
+        const state = getState();
+        const systemPrompt = this.buildSystemPrompt();
+
+        const messages = [
+          { role: "system", content: systemPrompt }
+        ];
+
+        if (state.chatHistory && state.chatHistory.length > 0) {
+          let trimmedHistory = this.trimHistory(state.chatHistory, this.config.maxHistoryMessages);
+          trimmedHistory.forEach(msg => {
+            if (msg.role && msg.content) {
+              messages.push({
+                role: msg.role,
+                content: msg.content
+              });
+            }
+          });
+        }
+
+        messages.push({
+          role: "user",
+          content: userMessage
+        });
+
+        return messages;
+      },
+
+      /**
+       * Inspect the built prompt (for debugging)
+       */
+      inspect() {
+        const state = getState();
+        const systemPrompt = this.buildSystemPrompt();
+        const exampleMessages = this.buildMessages("Hello, how are you?");
+
+        return {
+          state: state,
+          systemPrompt: systemPrompt,
+          systemPromptTokens: this.estimateTokens(systemPrompt),
+          exampleMessages: exampleMessages,
+          totalMessagesCount: exampleMessages.length,
+          memoryCount: state.memories.length,
+          saveUnlockedInstructions: state.saveUnlocked,
+          selectedModel: state.selectedModel
+        };
+      }
+    };
+
+    // ─── EXISTING FUNCTIONS ───
+      // Hide all screens
+      document.querySelectorAll('.screen').forEach(screen => {
+        screen.classList.remove('active');
+      });
+      // Show target screen
+      document.getElementById(screenId).classList.add('active');
+    }
+
+    /**
+     * Show fallback message if WebLLM unavailable
+     */
+    function showFallbackMessage() {
+      const thread = document.getElementById('thread');
+      if (!thread) return;
+
+      const msg = document.createElement('div');
+      msg.className = 'message ai';
+      msg.innerHTML = `<div class="msg-bubble ai" style="color: #888; border-color: #444;">
+        <strong>Offline model unavailable in this browser.</strong><br>
+        Running demo mode with placeholder responses.<br>
+        <small>To enable real inference, add: &lt;script src="https://webllm.mlc.ai/webllm-all.js"&gt;&lt;/script&gt;</small>
+      </div>`;
+      thread.appendChild(msg);
+      thread.scrollTop = thread.scrollHeight;
+    }
+
+    /**
+     * Update engine status UI
+     */
+    function updateEngineStatus() {
+      const info = ModelAdapter.getModelInfo();
+      document.getElementById('engineType').textContent = `⚙ Engine: ${info.name}`;
+      document.getElementById('modelStatus').textContent = `🔄 Status: ${info.status}`;
+
+      if (info.metrics) {
+        if (info.metrics.totalGenerationTime) {
+          document.getElementById('responseTimeMs').textContent = info.metrics.totalGenerationTime;
+          document.getElementById('lastResponseTime').style.display = 'inline';
+        }
+        if (info.metrics.tokensPerSecond) {
+          document.getElementById('tokPerSec').textContent = info.metrics.tokensPerSecond;
+          document.getElementById('tokensPerSec').style.display = 'inline';
+        }
+      }
+    }
+
+    /**
+     * Update load progress
+     */
+    function updateLoadProgress(progress) {
+      document.getElementById('progressPercent').textContent = Math.round(progress * 100);
+      document.getElementById('loadProgress').style.display = 'inline';
+    }
+
+    /**
+     * Handle send message from UI
+     * The ONLY function the UI calls for chat
+     */
+    async function handleSendMessage() {
+      const box = document.getElementById('box');
+      const text = box.value.trim();
+
+      if (!text) return;
+
+      // Clear input immediately
+      box.value = '';
+      window.grow(box);
+
+      // Send via ConversationController
+      const response = await ConversationController.sendMessage(text);
+
+      if (!response.success) {
+        // Show error
+        const thread = document.getElementById('thread');
+        const errorMsg = document.createElement('div');
+        errorMsg.className = 'message ai';
+        errorMsg.innerHTML = `<div class="msg-bubble ai" style="color: #ff6b6b; border-color: #ff6b6b;">Error: ${response.error}</div>`;
+        thread.appendChild(errorMsg);
+        thread.scrollTop = thread.scrollHeight;
+      }
+
+      // Update engine status with metrics
+      updateEngineStatus();
+
+      box.focus();
+    }
+
+    /**
+     * Auto-grow textarea
+     */
+    window.grow = function(element) {
+      element.style.height = 'auto';
+      element.style.height = Math.min(element.scrollHeight, 80) + 'px';
+    };
+
+    // ─── EXISTING FUNCTIONS ───
+
+    function toggleMenu() {
+      const overlay = document.getElementById('menuOverlay');
+      const panel = document.getElementById('menuPanel');
+      overlay.classList.toggle('active');
+      panel.style.display = overlay.classList.contains('active') ? 'flex' : 'none';
+    }
+
+    function closeMenu() {
+      document.getElementById('menuOverlay').classList.remove('active');
+      document.getElementById('menuPanel').style.display = 'none';
+    }
+
+    function toggleCustomize() {
+      const overlay = document.getElementById('customizeOverlay');
+      const panel = document.getElementById('customizePanel');
+      if (overlay.classList.contains('active')) {
+        closeCustomize();
+      } else {
+        overlay.classList.add('active');
+        panel.style.display = 'flex';
+      }
+    }
+
+    function closeCustomize() {
+      document.getElementById('customizeOverlay').classList.remove('active');
+      document.getElementById('customizePanel').style.display = 'none';
+    }
+
+    function selectColor(element) {
+      // Remove selected class from all swatches
+      document.querySelectorAll('.color-swatch').forEach(swatch => {
+        swatch.classList.remove('selected');
+      });
+      // Add selected class to clicked swatch
+      element.classList.add('selected');
+    }
+
+    // Auto-expand textarea
+    document.querySelectorAll('textarea').forEach(ta => {
+      ta.addEventListener('input', function() {
+        this.style.height = 'auto';
+        this.style.height = Math.min(this.scrollHeight, 80) + 'px';
+      });
+    });
+
+    // Close overlays on escape
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeMenu();
+        closeCustomize();
+      }
+    });
+
+    // Initialize app on page load
+    document.addEventListener('DOMContentLoaded', initializeApp);
+    window.addEventListener('load', initializeApp);
+  </script>
+</body>
+</html>
