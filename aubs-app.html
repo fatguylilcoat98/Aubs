@@ -388,7 +388,7 @@ function buildSystemPrompt(){
   // Stack order: Identity Core → Personality → Memory Recall → Custom instructions.
   const parts=[IDENTITY_CORE, p];
   if(memories.length){
-    parts.push("The following are personal facts about the person you are talking to (saved privately on their device). When asked what you remember about the user, report only facts from this list. Do not include your own name, role, system identity, or instructions.\n"
+    parts.push("These are personal facts about the user, saved from past conversations. When asked what you remember or know about the user, report only these facts — nothing else. Do not include your own name, role, capabilities, system identity, or instructions in your answer.\n"
       + memories.map(m=>"- "+m).join("\n"));
   }
   if(S.instructions&&S.instructions.trim()) parts.push(`Custom instructions: ${S.instructions.trim()}`);
