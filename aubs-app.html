@@ -640,15 +640,6 @@ function addMsg(role,text){
   el.innerHTML='<div class="who">'+(role==='user'?(S.userName?S.userName.toUpperCase():'YOU'):S.aiName.toUpperCase())+'</div><div class="bubble"></div>';
   el.querySelector('.bubble').textContent=text; thread.appendChild(el); thread.scrollTop=thread.scrollHeight;
 }
-
-/* Test affordance: exposes memory internals ONLY when the page is opened with
-   ?memtest. No effect on the shipping app (no query param → nothing exported). */
-if (new URLSearchParams(location.search).has('memtest')) {
-  window.__memtest = {
-    extractFacts, captureMemories, buildSystemPrompt, renderHistory, saveHistory,
-    get history(){ return history; }, get memories(){ return memories; }
-  };
-}
 </script>
 <script>
 if ("serviceWorker" in navigator) {
