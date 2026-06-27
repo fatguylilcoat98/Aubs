@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FastEngine Validation Test</title>
+  <script src="https://webllm.mlc.ai/webllm-all.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
+      color: #e0e0e0;
+      padding: 40px 20px;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+
+    .header h1 {
+      font-size: 2.5em;
+      margin-bottom: 10px;
+      background: linear-gradient(135deg, #4FD4FF, #9B4DFF);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .header p {
+      color: #888;
+      font-size: 0.95em;
+    }
+
+    /* Local file warning */
+    .warning {
+      background: #8B4513;
+      border-left: 4px solid #FF6B6B;
+      padding: 16px;
+      margin-bottom: 20px;
+      border-radius: 4px;
+      display: none;
+    }
+
+    .warning.show { display: block; }
+    .warning strong { color: #FFB6C1; }
+    .warning code {
+      background: rgba(0,0,0,0.3);
+      padding: 4px 8px;
+      border-radius: 3px;
+      font-family: 'Courier New', monospace;
+      margin: 0 4px;
+    }
+
+    /* Dashboard grid */
+    .dashboard {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-bottom: 30px;
+    }
+
+    .card {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(79, 212, 255, 0.2);
+      border-radius: 8px;
+      padding: 16px;
+      backdrop-filter: blur(10px);
+    }
+
+    .card-title {
+      font-size: 0.85em;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 10px;
+    }
+
+    .card-value {
+      font-size: 1.5em;
+      font-weight: 600;
+      font-family: 'Courier New', monospace;
+      word-break: break-all;
+    }
+
+    .status-indicator {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      margin-right: 8px;
+      vertical-align: middle;
+    }
+
+    .status-ok { background: #4ade80; }
+    .status-loading { background: #fbbf24; animation: pulse 1s infinite; }
+    .status-error { background: #ff6b6b; }
+    .status-unknown { background: #888; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    /* Progress bar */
+    .progress {
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 4px;
+      height: 6px;
+      margin-top: 10px;
+      overflow: hidden;
+    }
+
+    .progress-bar {
+      background: linear-gradient(90deg, #4FD4FF, #9B4DFF);
+      height: 100%;
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+
+    .progress-text {
+      font-size: 0.8em;
+      color: #888;
+      margin-top: 8px;
+    }
+
+    /* Test results */
+    .test-results {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(79, 212, 255, 0.2);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 20px;
+      display: none;
+    }
+
+    .test-results.show { display: block; }
+
+    .prompt-result {
+      margin-bottom: 16px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .prompt-result:last-child {
+      border-bottom: none;
+      margin-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .prompt-num {
+      font-weight: 600;
+      color: #4FD4FF;
+      margin-bottom: 4px;
+    }
+
+    .prompt-text {
+      color: #ccc;
+      font-size: 0.95em;
+      margin-bottom: 8px;
+    }
+
+    .response-text {
+      background: rgba(0, 0, 0, 0.3);
+      padding: 8px;
+      border-radius: 4px;
+      font-size: 0.9em;
+      font-family: 'Courier New', monospace;
+      color: #a0a0a0;
+      margin-bottom: 8px;
+      max-height: 80px;
+      overflow-y: auto;
+    }
+
+    .metrics {
+      display: flex;
+      gap: 16px;
+      font-size: 0.85em;
+    }
+
+    .metric {
+      display: flex;
+      gap: 4px;
+      color: #888;
+    }
+
+    .metric-label { color: #666; }
+    .metric-value { color: #4FD4FF; font-weight: 600; font-family: 'Courier New', monospace; }
+
+    .output-type {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 0.8em;
+      font-weight: 600;
+      margin-left: 8px;
+    }
+
+    .output-real {
+      background: rgba(74, 222, 128, 0.2);
+      color: #4ade80;
+      border: 1px solid #4ade80;
+    }
+
+    .output-mock {
+      background: rgba(251, 191, 36, 0.2);
+      color: #fbbf24;
+      border: 1px solid #fbbf24;
+    }
+
+    /* Error log */
+    .error-log {
+      background: rgba(255, 107, 107, 0.1);
+      border: 1px solid rgba(255, 107, 107, 0.3);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 20px;
+      max-height: 150px;
+      overflow-y: auto;
+      display: none;
+    }
+
+    .error-log.show { display: block; }
+
+    .error-item {
+      font-family: 'Courier New', monospace;
+      font-size: 0.85em;
+      color: #ff9999;
+      margin-bottom: 8px;
+      padding: 8px;
+      background: rgba(0, 0, 0, 0.2);
+      border-left: 2px solid #ff6b6b;
+      border-radius: 2px;
+    }
+
+    /* Buttons */
+    .button-group {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    button {
+      flex: 1;
+      padding: 12px 20px;
+      font-size: 1em;
+      font-weight: 600;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #4FD4FF, #9B4DFF);
+      color: #000;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(79, 212, 255, 0.3);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.1);
+      color: #4FD4FF;
+      border: 1px solid rgba(79, 212, 255, 0.3);
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+      background: rgba(79, 212, 255, 0.1);
+      border-color: rgba(79, 212, 255, 0.6);
+    }
+
+    .btn-secondary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* Report */
+    .report-section {
+      background: rgba(0, 0, 0, 0.3);
+      padding: 16px;
+      border-radius: 6px;
+      margin-bottom: 20px;
+      display: none;
+    }
+
+    .report-section.show { display: block; }
+
+    .report-text {
+      font-family: 'Courier New', monospace;
+      font-size: 0.85em;
+      color: #ccc;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 300px;
+      overflow-y: auto;
+      padding: 12px;
+      background: rgba(0, 0, 0, 0.5);
+      border-radius: 4px;
+    }
+
+    .footer {
+      text-align: center;
+      color: #666;
+      font-size: 0.9em;
+      margin-top: 40px;
+    }
+
+    .loading-spinner {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 2px solid rgba(79, 212, 255, 0.3);
+      border-top-color: #4FD4FF;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    @media (max-width: 768px) {
+      .dashboard { grid-template-columns: 1fr; }
+      .header h1 { font-size: 1.8em; }
+      .button-group { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>FastEngine Test</h1>
+      <p>One-click validation for AUBS Llama 3.2 1B inference</p>
+    </div>
+
+    <!-- Local file warning -->
+    <div class="warning" id="localFileWarning">
+      <strong>⚠ Local file detected</strong><br>
+      WebLLM requires HTTPS or localhost. Run this command in the folder with <code>aubs-shell.html</code>:<br>
+      <code>python -m http.server 8000</code><br>
+      Then open: <code>http://localhost:8000/fastengine-test.html</code>
+    </div>
+
+    <!-- Dashboard -->
+    <div class="dashboard">
+      <div class="card">
+        <div class="card-title">WebLLM Status</div>
+        <div class="card-value">
+          <span class="status-indicator" id="webllmIndicator"></span>
+          <span id="webllmStatus">Detecting...</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Engine Selected</div>
+        <div class="card-value" id="engineSelected">—</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Model Status</div>
+        <div class="card-value">
+          <span class="status-indicator" id="modelIndicator"></span>
+          <span id="modelStatus">Uninitialized</span>
+        </div>
+        <div class="progress">
+          <div class="progress-bar" id="loadProgressBar"></div>
+        </div>
+        <div class="progress-text" id="loadProgressText"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Load Time</div>
+        <div class="card-value" id="loadTime">—</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Test Status</div>
+        <div class="card-value">
+          <span class="status-indicator" id="testIndicator"></span>
+          <span id="testStatus">Ready</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Prompts Sent</div>
+        <div class="card-value" id="promptCount">0 / 5</div>
+      </div>
+    </div>
+
+    <!-- Error log -->
+    <div class="error-log" id="errorLog"></div>
+
+    <!-- Test results -->
+    <div class="test-results" id="testResults">
+      <div class="card-title">Test Results</div>
+      <div id="resultsContainer"></div>
+    </div>
+
+    <!-- Report -->
+    <div class="report-section" id="reportSection">
+      <div class="card-title">Plain Text Report</div>
+      <div class="report-text" id="reportText"></div>
+    </div>
+
+    <!-- Buttons -->
+    <div class="button-group">
+      <button class="btn-primary" id="runTestBtn" onclick="runTest()">
+        Run FastEngine Test
+      </button>
+      <button class="btn-secondary" id="copyReportBtn" onclick="copyReport()" disabled>
+        Copy Test Report
+      </button>
+    </div>
+
+    <div class="footer">
+      <p>FastEngine Validation v1.0 — Testing Llama 3.2 1B inference</p>
+    </div>
+  </div>
+
+  <script>
+    const prompts = [
+      "Hello",
+      "What are you?",
+      "Tell me something useful.",
+      "Tacos or burritos?",
+      "Remember that I like blue and purple."
+    ];
+
+    let testResults = [];
+    let engine = null;
+    let isTesting = false;
+
+    // Check if running from file:// and show warning
+    if (window.location.protocol === 'file:') {
+      document.getElementById('localFileWarning').classList.add('show');
+    }
+
+    // Initialize on page load
+    window.addEventListener('load', () => {
+      checkWebLLM();
+    });
+
+    function checkWebLLM() {
+      if (typeof window.webllm !== 'undefined') {
+        updateStatus('webllmStatus', 'Detected', 'ok');
+        document.getElementById('webllmIndicator').className = 'status-indicator status-ok';
+        selectEngine();
+      } else {
+        updateStatus('webllmStatus', 'Not Available', 'error');
+        document.getElementById('webllmIndicator').className = 'status-indicator status-error';
+        addError('WebLLM script not loaded from CDN');
+      }
+    }
+
+    function selectEngine() {
+      if (typeof window.webllm !== 'undefined') {
+        document.getElementById('engineSelected').textContent = 'FastEngine (WebLLM)';
+      } else {
+        document.getElementById('engineSelected').textContent = 'MockEngine (Demo)';
+      }
+    }
+
+    async function runTest() {
+      if (isTesting) return;
+      isTesting = true;
+
+      const btn = document.getElementById('runTestBtn');
+      btn.disabled = true;
+      btn.innerHTML = 'Testing<span class="loading-spinner"></span>';
+
+      testResults = [];
+      document.getElementById('resultsContainer').innerHTML = '';
+      document.getElementById('errorLog').classList.remove('show');
+
+      try {
+        // Step 1: Initialize engine
+        updateStatus('modelStatus', 'Loading...', 'loading');
+        document.getElementById('modelIndicator').className = 'status-indicator status-loading';
+
+        if (typeof window.webllm === 'undefined') {
+          addError('WebLLM not available - using mock responses');
+          // Mock initialization
+          await mockDelay(500);
+          updateStatus('modelStatus', 'Ready (Mock)', 'ok');
+          document.getElementById('modelIndicator').className = 'status-indicator status-ok';
+          document.getElementById('loadTime').textContent = 'N/A (Mock)';
+        } else {
+          // Real initialization
+          const loadStart = Date.now();
+          engine = new window.webllm.MLCEngine({
+            initProgressCallback: (info) => {
+              const progress = info.progress || 0;
+              document.getElementById('loadProgressBar').style.width = (progress * 100) + '%';
+              document.getElementById('loadProgressText').textContent = Math.round(progress * 100) + '%';
+            }
+          });
+
+          try {
+            await engine.reload('Llama-3.2-1B-Instruct-q4f32_1');
+            const loadTime = Date.now() - loadStart;
+            document.getElementById('loadTime').textContent = loadTime + ' ms';
+            document.getElementById('loadProgressBar').style.width = '100%';
+            document.getElementById('loadProgressText').textContent = '100%';
+            updateStatus('modelStatus', 'Ready (FastEngine)', 'ok');
+            document.getElementById('modelIndicator').className = 'status-indicator status-ok';
+          } catch (err) {
+            addError('FastEngine load failed: ' + err.message);
+            updateStatus('modelStatus', 'Failed', 'error');
+            document.getElementById('modelIndicator').className = 'status-indicator status-error';
+            isTesting = false;
+            btn.disabled = false;
+            btn.innerHTML = 'Run FastEngine Test';
+            return;
+          }
+        }
+
+        // Step 2: Send prompts
+        updateStatus('testStatus', 'Testing...', 'loading');
+        document.getElementById('testIndicator').className = 'status-indicator status-loading';
+
+        for (let i = 0; i < prompts.length; i++) {
+          await sendPrompt(prompts[i], i + 1);
+          document.getElementById('promptCount').textContent = (i + 1) + ' / 5';
+        }
+
+        // Step 3: Generate report
+        updateStatus('testStatus', 'Complete', 'ok');
+        document.getElementById('testIndicator').className = 'status-indicator status-ok';
+        generateReport();
+        document.getElementById('reportSection').classList.add('show');
+        document.getElementById('copyReportBtn').disabled = false;
+
+      } catch (err) {
+        addError('Test error: ' + err.message);
+        updateStatus('testStatus', 'Failed', 'error');
+        document.getElementById('testIndicator').className = 'status-indicator status-error';
+      } finally {
+        isTesting = false;
+        btn.disabled = false;
+        btn.innerHTML = 'Run FastEngine Test';
+      }
+    }
+
+    async function sendPrompt(prompt, num) {
+      const startTime = Date.now();
+      let response = '';
+      let isReal = false;
+
+      try {
+        if (engine) {
+          // Real inference
+          const messages = [
+            { role: 'system', content: 'You are a helpful AI assistant.' },
+            { role: 'user', content: prompt }
+          ];
+
+          const text = messages.map(m => `${m.role}: ${m.content}`).join('\n') + '\nassistant: ';
+          response = await engine.generate(text);
+          isReal = true;
+        } else {
+          // Mock response
+          const mockResponses = {
+            'Hello': 'Hi there! How can I help you today?',
+            'What are you?': 'I am a helpful AI assistant created by Anthropic.',
+            'Tell me something useful.': 'Did you know that learning something new every day keeps your mind sharp and healthy?',
+            'Tacos or burritos?': 'Both are delicious! Tacos are versatile and fun, while burritos are convenient and filling.',
+            'Remember that I like blue and purple.': 'Noted! You like blue and purple. I will remember this preference.'
+          };
+          response = mockResponses[prompt] || 'Mock response to: ' + prompt;
+          isReal = false;
+          await mockDelay(800);
+        }
+      } catch (err) {
+        response = 'Error: ' + err.message;
+        addError(`Prompt ${num} failed: ${err.message}`);
+      }
+
+      const endTime = Date.now();
+      const responseTime = endTime - startTime;
+
+      testResults.push({
+        num,
+        prompt,
+        response: response.substring(0, 100),
+        fullResponse: response,
+        time: responseTime,
+        isReal
+      });
+
+      displayResult(num, prompt, response, responseTime, isReal);
+    }
+
+    function displayResult(num, prompt, response, time, isReal) {
+      const container = document.getElementById('resultsContainer');
+      const div = document.createElement('div');
+      div.className = 'prompt-result';
+      div.innerHTML = `
+        <div class="prompt-num">Prompt ${num}</div>
+        <div class="prompt-text">"${prompt}"</div>
+        <div class="response-text" title="${response}">${response.substring(0, 100)}${response.length > 100 ? '...' : ''}</div>
+        <div class="metrics">
+          <div class="metric">
+            <span class="metric-label">Time:</span>
+            <span class="metric-value">${time}ms</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Type:</span>
+            <span class="metric-value ${isReal ? 'output-real' : 'output-mock'} output-type">${isReal ? 'REAL' : 'MOCK'}</span>
+          </div>
+        </div>
+      `;
+      container.appendChild(div);
+      document.getElementById('testResults').classList.add('show');
+    }
+
+    function generateReport() {
+      let report = `FastEngine Validation Report
+Generated: ${new Date().toLocaleString()}
+
+SETUP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WebLLM Detected: ${typeof window.webllm !== 'undefined' ? 'YES' : 'NO'}
+Engine: ${document.getElementById('engineSelected').textContent}
+Model Status: ${document.getElementById('modelStatus').textContent}
+Load Time: ${document.getElementById('loadTime').textContent}
+
+TEST RESULTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+
+      let totalTime = 0;
+      let realCount = 0;
+
+      testResults.forEach(result => {
+        totalTime += result.time;
+        if (result.isReal) realCount++;
+
+        report += `
+Prompt ${result.num}: "${result.prompt}"
+  Output Type: ${result.isReal ? 'REAL' : 'MOCK'}
+  Response: ${result.fullResponse}
+  Time: ${result.time}ms
+`;
+      });
+
+      report += `
+SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Prompts Sent: ${testResults.length}
+Real Responses: ${realCount}
+Mock Responses: ${testResults.length - realCount}
+Average Response Time: ${Math.round(totalTime / testResults.length)}ms
+Total Time: ${totalTime}ms
+
+ASSESSMENT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${realCount > 0 ? '✅ PASS - FastEngine is working with real inference' : '⚠️ PARTIAL - Running in mock mode (WebLLM not available)'}
+
+${typeof window.webllm === 'undefined' ? 'Note: To enable FastEngine, run from localhost with WebLLM CDN accessible.' : 'Note: Verify that responses are coherent and contextual.'}
+`;
+
+      document.getElementById('reportText').textContent = report;
+    }
+
+    function copyReport() {
+      const text = document.getElementById('reportText').textContent;
+      navigator.clipboard.writeText(text).then(() => {
+        const btn = document.getElementById('copyReportBtn');
+        const original = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = original; }, 2000);
+      });
+    }
+
+    function updateStatus(elementId, text, type) {
+      document.getElementById(elementId).textContent = text;
+    }
+
+    function addError(message) {
+      const log = document.getElementById('errorLog');
+      log.classList.add('show');
+      const item = document.createElement('div');
+      item.className = 'error-item';
+      item.textContent = '✗ ' + message;
+      log.appendChild(item);
+    }
+
+    function mockDelay(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+  </script>
+</body>
+</html>
