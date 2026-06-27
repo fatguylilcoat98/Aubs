@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AUBS Citation Reliability Harness — Checkpoint 0.5</title>
+<!-- Loads the REAL spine so scoring matches the app exactly. -->
+<script src="../spine/spine.js"></script>
+<style>
+  body{font:14px/1.5 system-ui,sans-serif;margin:18px;color:#0d1124;background:#f4f6fc}
+  h1{font-size:18px;margin:0 0 4px}
+  .meta{color:#5a6080;margin-bottom:14px}
+  .controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+  select,button{font:inherit;padding:8px 12px;border-radius:8px;border:1px solid #c3c9dd;background:#fff}
+  button{cursor:pointer;background:#2B8CFF;color:#fff;border:0}
+  button:disabled{opacity:.5;cursor:default}
+  #status{margin:10px 0;color:#2B8CFF;min-height:20px}
+  table{border-collapse:collapse;width:100%;background:#fff;font-size:12.5px}
+  th,td{border:1px solid #e1e5f0;padding:6px 8px;vertical-align:top;text-align:left}
+  th{background:#eef2fb;position:sticky;top:0}
+  td.ans{max-width:380px;white-space:pre-wrap}
+  .tag-grounded{color:#0a7d2c;font-weight:600}
+  .tag-inferred{color:#9466ff}
+  .tag-general{color:#5a6080}
+  .tag-unknown{color:#c2410c}
+  .out-cited_correct{color:#0a7d2c}
+  .out-omitted,.out-cited_nonexistent,.out-cited_wrong_in_prompt,.out-cited_when_none_expected{color:#c2410c}
+  pre{background:#fff;border:1px solid #e1e5f0;border-radius:8px;padding:10px;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<h1>AUBS Citation Reliability Harness</h1>
+<div class="meta">Checkpoint 0.5 evidence-gathering · spine <span id="ver">?</span> · flags <span id="flags">?</span> · this is a TEST tool, not the app.</div>
+
+<div class="controls">
+  <label>Model:
+    <select id="model">
+      <option value="Llama-3.2-1B-Instruct-q4f32_1-MLC">Fast — Llama 3.2 1B</option>
+      <option value="Qwen2.5-1.5B-Instruct-q4f32_1-MLC">Qwen2.5 1.5B</option>
+      <option value="Llama-3.2-3B-Instruct-q4f32_1-MLC">Smart — Llama 3.2 3B</option>
+    </select>
+  </label>
+  <button id="run">Run all scenarios</button>
+</div>
+<div id="status">Loading scenarios…</div>
+
+<table id="results">
+  <thead><tr>
+    <th>#</th><th>Scenario</th><th>Prompt</th><th>Expected ID</th><th>Model answer</th><th>IDs cited</th><th>Outcome</th><th>Tag</th>
+  </tr></thead>
+  <tbody></tbody>
+</table>
+<div id="summary"></div>
+
+<script type="module">
+import * as webllm from "https://esm.run/@mlc-ai/web-llm@0.2.84";
+const SPINE = window.AUBS_SPINE;
+const H = window.H = { engine:null, results:[] };               // engine settable for offline test injection
+document.getElementById('ver').textContent = SPINE.SPINE_VERSION;
+document.getElementById('flags').textContent = SPINE.activeFlags().join(',') || 'none';
+
+let SCEN = [];
+const status = (m)=>{ document.getElementById('status').textContent = m; };
+fetch('./golden-set.citations.v1.json').then(r=>r.json())
+  .then(j=>{ SCEN = j.scenarios; status('Loaded '+SCEN.length+' scenarios ('+j.version+'). Pick a model and press Run.'); })
+  .catch(e=>status('Could not load scenarios: '+e.message));
+
+function esc(s){ return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+// System prompt mirrors the app: identity + (optional persona) + spine memory-recall block.
+function systemPrompt(scn, entries){
+  const parts = ["You are AUBS, a private on-device AI assistant. Truth · Safety · We Got Your Back. Keep replies short."];
+  if(scn.persona) parts.push("Your permanent purpose is to genuinely help; a persona is style only and must still help. You are "+scn.persona.name+". "+scn.persona.instructions);
+  const block = SPINE.memoryRecallBlock(entries);
+  if(block) parts.push(block);
+  return parts.join("\n\n");
+}
+
+async function runOne(scn){
+  const entries = SPINE.adaptMemories(scn.memory || []);
+  const ids = entries.map(e=>e.id);
+  const expected_id = (scn.expected_index!=null && entries[scn.expected_index]) ? entries[scn.expected_index].id : null;
+  const sys = systemPrompt(scn, entries);
+  const res = await H.engine.chat.completions.create({
+    messages:[{role:'system',content:sys},{role:'user',content:scn.prompt}], temperature:0.2, max_tokens:220
+  });
+  const answer = (res && res.choices && res.choices[0] && res.choices[0].message && res.choices[0].message.content) || "";
+  const cited = SPINE.parseCitations(answer);
+  const classification = SPINE.classify(scn.prompt);
+  const outcome = SPINE.classifyCitation({ answer, memory_ids_in_prompt:ids, entries, expected_id });
+  let r = SPINE.tagAnswer({ answer, memory_ids_in_prompt:ids, entries, classification, conflict: scn.conflict===true });
+  let tag = r.tag; if(!SPINE.dangerFactCheck(answer).ok) tag='unknown';
+  return { id:scn.id, name:scn.name, prompt:scn.prompt, expected: expected_id||'(none)', answer, cited: cited.join(', ')||'(none)', outcome, tag };
+}
+
+window.runAll = async function(){
+  const btn = document.getElementById('run'); btn.disabled = true;
+  try{
+    const model = document.getElementById('model').value;
+    if(!H.engine){
+      status('Loading '+model+' … (first run downloads the model)');
+      H.engine = await webllm.CreateMLCEngine(model, { initProgressCallback:(p)=>status('Loading: '+Math.round((p.progress||0)*100)+'% '+(p.text||'')) });
+    }
+    status('Running '+SCEN.length+' scenarios…');
+    const tbody = document.querySelector('#results tbody'); tbody.innerHTML=''; H.results=[];
+    const tally = {};
+    for(const scn of SCEN){
+      let row;
+      try{ row = await runOne(scn); }
+      catch(e){ row = { id:scn.id, name:scn.name, prompt:scn.prompt, expected:'', answer:'ERROR: '+e.message, cited:'', outcome:'error', tag:'error' }; }
+      H.results.push(row); tally[row.outcome] = (tally[row.outcome]||0)+1;
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td>'+row.id+'</td><td>'+esc(row.name)+'</td><td>'+esc(row.prompt)+'</td><td>'+esc(row.expected)+
+        '</td><td class="ans">'+esc(row.answer)+'</td><td>'+esc(row.cited)+'</td>'+
+        '<td class="out-'+row.outcome+'">'+row.outcome+'</td><td class="tag-'+row.tag+'">'+row.tag+'</td>';
+      tbody.appendChild(tr);
+    }
+    const expectedCases = SCEN.filter(s=>s.expect_citation).length;
+    const correct = tally['cited_correct'] || 0;
+    document.getElementById('summary').innerHTML =
+      '<h3>Summary</h3><pre>'+esc(JSON.stringify(tally,null,2))+'</pre>'+
+      '<p><b>Citation reliability</b> (cited_correct / citation-expected): '+correct+' / '+expectedCases+'</p>'+
+      '<p>Record: model = <code>'+esc(document.getElementById('model').value)+'</code>. Copy the table + this summary into your report.</p>';
+    status('Done.');
+  } finally { btn.disabled = false; }
+};
+document.getElementById('run').onclick = ()=>window.runAll().catch(e=>status('Error: '+e.message));
+</script>
+</body>
+</html>

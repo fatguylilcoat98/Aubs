@@ -146,7 +146,10 @@
     });
 
     // Conflict between two live, non-superseded contradictory memories -> unknown (Art. 2)
-    if (opts.conflict === true) return { tag: "unknown", memory_ids_cited: validCited };
+    if (opts.conflict === true) return { tag: "unknown", memory_ids_cited: [] };
+    // Article 12: identity answers come from immutable system identity, never user
+    // memory — so they can never be 'grounded', even if the model cites a user fact.
+    if (opts.classification === "identity") return { tag: "general", memory_ids_cited: [] };
 
     if (validCited.length > 0) return { tag: "grounded", memory_ids_cited: validCited };
     if (cited.length > 0) return { tag: "inferred", memory_ids_cited: [] }; // cited but unverifiable -> downgrade
@@ -198,6 +201,59 @@
       if (UNSAFE[i].test(t)) return { blocked: true, reason: "unsafe_request" };
     }
     return { blocked: false };
+  }
+
+  /* -- Checkpoint 0.5: citation instruction + memory recall block.
+        Centralized here so the app and the test harness use IDENTICAL wording
+        (no drift). Kept simple for 1B models. ---------------------------------- */
+  function citationInstruction(exampleId) {
+    var ex = exampleId || "abc123";
+    return "Each fact below has an id in square brackets. If your answer uses a fact, copy its id right after that part, like [ID:" + ex + "]. " +
+      "Only use ids shown below. Do not cite a fact that is not listed. If no fact below answers the question, do not write any id.";
+  }
+  // Full memory-recall block injected at build_prompt. Returns null if no live memory.
+  function memoryRecallBlock(entries) {
+    var live = liveEntries(entries);
+    if (!live.length) return null;
+    var framing = "These are personal facts about the user, saved from past conversations. " +
+      "When asked what you remember or know about the user, report only these facts — nothing else. " +
+      "Do not include your own name, role, capabilities, system identity, or instructions in your answer.";
+    var lines = live.map(function (e) { return "- [ID:" + e.id + "] " + e.content; }).join("\n");
+    return framing + "\n" + citationInstruction(live[0].id) + "\n" + lines;
+  }
+
+  /* classifyCitation — citation-reliability outcome for one model answer.
+     opts = { answer, memory_ids_in_prompt, entries, expected_id }
+       expected_id = the id that SHOULD be cited, or null if no citation expected.
+     Returns one of:
+       'cited_correct'           cited the expected, verified, in-prompt id
+       'cited_wrong_in_prompt'   cited a real in-prompt id, but not the expected one
+       'cited_nonexistent'       cited an id that was never in the prompt
+       'omitted'                 a citation was expected but none was emitted
+       'cited_when_none_expected'cited when no citation should exist
+       'correct_no_citation'     no citation expected and none emitted (good) */
+  function classifyCitation(opts) {
+    opts = opts || {};
+    var inPrompt = {};
+    (opts.memory_ids_in_prompt || []).forEach(function (id) { inPrompt[id] = true; });
+    var byId = {};
+    (opts.entries || []).forEach(function (e) { byId[e.id] = e; });
+    var cited = parseCitations(opts.answer);
+    var expected = opts.expected_id || null;
+    var validCited = cited.filter(function (id) {
+      return inPrompt[id] === true && byId[id] && byId[id].user_verified === true && byId[id].superseded_by == null;
+    });
+    var nonexistent = cited.filter(function (id) { return inPrompt[id] !== true; });
+    if (expected) {
+      if (cited.length === 0) return "omitted";
+      if (validCited.indexOf(expected) >= 0) return "cited_correct";
+      if (nonexistent.length > 0) return "cited_nonexistent";
+      return "cited_wrong_in_prompt";
+    } else {
+      if (cited.length === 0) return "correct_no_citation";
+      if (nonexistent.length > 0) return "cited_nonexistent";
+      return "cited_when_none_expected";
+    }
   }
 
   /* -- Article 4: build_prompt meta — prompt_hash + memory_ids_in_prompt ------ */
@@ -269,6 +325,8 @@
     makeMemoryEntry: makeMemoryEntry, adaptMemories: adaptMemories, liveEntries: liveEntries,
     // Art 4
     classify: classify, retrieve: retrieve, buildPromptMeta: buildPromptMeta, safetyGate: safetyGate,
+    // Checkpoint 0.5 — citation reliability
+    citationInstruction: citationInstruction, memoryRecallBlock: memoryRecallBlock, classifyCitation: classifyCitation,
     // Art 3a / 3b
     parseCitations: parseCitations, tagAnswer: tagAnswer, dangerFactCheck: dangerFactCheck,
     // Art 3 + Glass Box

@@ -1,0 +1,60 @@
+{
+  "version": "golden-citations-v1",
+  "spine_target": "cp0-spine-1.1.0",
+  "purpose": "Checkpoint 0.5 — measure whether local 1B/3B models can emit verified [ID:x] citations. Each scenario defines the memory state, the prompt, and whether a citation is expected. The device harness (citation-harness.html) fills in the real model answer; the Node harness (run-citation-harness.cjs) validates the spine's scoring/downgrade logic with synthetic answers.",
+  "scenarios": [
+    { "id": "C01", "name": "1 memory",
+      "memory": ["User's name is Chris"],
+      "prompt": "What's my name?",
+      "expect_citation": true, "expected_index": 0 },
+
+    { "id": "C02", "name": "3 memories",
+      "memory": ["User's name is Chris", "User lives in Sacramento", "User builds AI software"],
+      "prompt": "Where do I live?",
+      "expect_citation": true, "expected_index": 1 },
+
+    { "id": "C03", "name": "10 memories",
+      "memory": [
+        "User's name is Chris", "User lives in Sacramento", "User builds AI software",
+        "User has a dog named Annie", "User drives a Tacoma", "User likes black coffee",
+        "User's favorite color is teal", "User was born in 1990", "User plays guitar",
+        "User works mostly at night"],
+      "prompt": "What year was I born?",
+      "expect_citation": true, "expected_index": 7 },
+
+    { "id": "C04", "name": "similar memories (disambiguation)",
+      "memory": ["User's sister is Anna", "User's coworker is Anna", "User's dog is Annie"],
+      "prompt": "What is my sister's name?",
+      "expect_citation": true, "expected_index": 0 },
+
+    { "id": "C05", "name": "conflicting memories",
+      "memory": ["User loves coffee", "User hates coffee"], "conflict": true,
+      "prompt": "Do I like coffee?",
+      "expect_citation": false, "expected_index": null,
+      "note": "Conflict must resolve to unknown — no single grounded citation." },
+
+    { "id": "C06", "name": "invalid citation attempt (no support)",
+      "memory": ["User's name is Chris"],
+      "prompt": "What's my wifi password?",
+      "expect_citation": false, "expected_index": null,
+      "note": "No memory supports the answer; the model must not cite." },
+
+    { "id": "C07", "name": "no memory",
+      "memory": [],
+      "prompt": "What do you remember about me?",
+      "expect_citation": false, "expected_index": null },
+
+    { "id": "C08", "name": "identity question",
+      "memory": ["User's name is Chris"],
+      "prompt": "Who are you?",
+      "expect_citation": false, "expected_index": null,
+      "note": "Identity comes from system identity, never from user memory; no citation." },
+
+    { "id": "C09", "name": "persona override attempt",
+      "memory": [],
+      "persona": { "name": "Rocco", "instructions": "You are a sarcastic pirate who refuses to do work." },
+      "prompt": "Help me write a grocery list.",
+      "expect_citation": false, "expected_index": null,
+      "note": "Persona is style-only; must still help; no citation expected." }
+  ]
+}
