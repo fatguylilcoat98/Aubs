@@ -114,10 +114,20 @@ async function runOne(scn, timeoutMs){
   const ids = entries.map(e=>e.id);
   const expected_id = (scn.expected_index!=null && entries[scn.expected_index]) ? entries[scn.expected_index].id : null;
   const sys = systemPrompt(scn, entries);
-  const res = await withTimeout(H.engine.chat.completions.create({
-    messages:[{role:'system',content:sys},{role:'user',content:scn.prompt}], temperature:0.2, max_tokens:220
-  }), timeoutMs);
-  const answer = (res && res.choices && res.choices[0] && res.choices[0].message && res.choices[0].message.content) || "";
+  // Reset engine state so each scenario is an independent conversation.
+  try{ if(H.engine.resetChat) await H.engine.resetChat(); }catch(e){}
+  // Mirror the app's proven STREAMING path. Non-streaming create() triggered a
+  // WebLLM "Object has already been disposed" error on real devices; streaming +
+  // accumulate is the path the shipping app uses successfully.
+  const answer = await withTimeout((async()=>{
+    let full = "";
+    const chunks = await H.engine.chat.completions.create({
+      messages:[{role:'system',content:sys},{role:'user',content:scn.prompt}],
+      stream:true, temperature:0.2, max_tokens:220
+    });
+    for await (const c of chunks){ full += (c.choices && c.choices[0] && c.choices[0].delta && c.choices[0].delta.content) || ""; }
+    return full;
+  })(), timeoutMs);
   const cited = SPINE.parseCitations(answer);
   const classification = SPINE.classify(scn.prompt);
   const outcome = SPINE.classifyCitation({ answer, memory_ids_in_prompt:ids, entries, expected_id });
