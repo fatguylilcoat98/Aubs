@@ -173,16 +173,18 @@ async function runOne(scn, timeoutMs){
   const ids = entries.map(e=>e.id);
   const expected_id = (scn.expected_index!=null && entries[scn.expected_index]) ? entries[scn.expected_index].id : null;
   const sys = systemPrompt(scn, entries);
-  // Reset engine state so each scenario is an independent conversation.
-  try{ if(H.engine.resetChat) await H.engine.resetChat(); }catch(e){}
-  // Mirror the app's proven STREAMING path. Non-streaming create() triggered a
-  // WebLLM "Object has already been disposed" error on real devices; streaming +
-  // accumulate is the path the shipping app uses successfully.
+  // Independence comes from passing the full [system,user] messages each call
+  // (chat.completions.create is stateless when given messages). We deliberately do
+  // NOT call resetChat() between scenarios: on this WebLLM/Android build a
+  // resetChat() right before create() left the engine half-reset and produced
+  // EMPTY output (and fed the GPU-buffer instability). The shipping app never
+  // resets in normal flow and generates fine, so we mirror it exactly:
+  // streaming + accumulate, temp 0.7.
   const answer = await withTimeout((async()=>{
     let full = "";
     const chunks = await H.engine.chat.completions.create({
       messages:[{role:'system',content:sys},{role:'user',content:scn.prompt}],
-      stream:true, temperature:0.6, max_tokens:200
+      stream:true, temperature:0.7, max_tokens:256
     });
     for await (const c of chunks){ full += (c.choices && c.choices[0] && c.choices[0].delta && c.choices[0].delta.content) || ""; }
     return full;
