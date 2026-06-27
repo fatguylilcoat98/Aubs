@@ -67,7 +67,7 @@
 </head>
 <body>
 <h1>AUBS Citation Reliability Harness</h1>
-<div class="meta">Checkpoint 0.5 evidence-gathering · spine <span id="ver">?</span> · flags <span id="flags">?</span> · this is a TEST tool, not the app.</div>
+<div class="meta">Checkpoint 0.6 — relevance guard + [m_x] tolerance · spine <span id="ver">?</span> · flags <span id="flags">?</span> · this is a TEST tool, not the app.<br>A citation now grounds only if the cited memory is <b>relevant</b> to the question.</div>
 
 <div class="panel">
   <h2>How to run (for Chris)</h2>
@@ -199,7 +199,9 @@ async function runOne(scn, timeoutMs){
   const formatMiss = (cited.length === 0 && bare.length > 0);  // cited an id, but wrong format
   const classification = SPINE.classify(scn.prompt);
   const outcome = SPINE.classifyCitation({ answer, memory_ids_in_prompt:ids, entries, expected_id });
-  let r = SPINE.tagAnswer({ answer, memory_ids_in_prompt:ids, entries, classification, conflict: scn.conflict===true });
+  // Checkpoint 0.6: pass the query (relevance guard) and accept [m_x] shorthand (tolerantFormat).
+  // A valid citation now grounds only if the cited memory is relevant to the query.
+  let r = SPINE.tagAnswer({ answer, query: scn.prompt, memory_ids_in_prompt:ids, entries, classification, conflict: scn.conflict===true, tolerantFormat: true });
   let tag = r.tag; if(!SPINE.dangerFactCheck(answer).ok) tag='unknown';
   return { id:scn.id, name:scn.name, prompt:scn.prompt, expected: expected_id||'(none)', expect_citation: !!scn.expect_citation, answer, cited: cited.join(', ')||'(none)', bare: bare.join(', '), formatMiss, outcome, tag };
 }

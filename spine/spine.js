@@ -125,10 +125,56 @@
   }
 
   /* -- Article 3a: verified grounding ---------------------------------------- */
-  function parseCitations(text) {
-    var ids = [], re = /\[ID:([A-Za-z0-9_\-]+)\]/g, m;
-    while ((m = re.exec(String(text || ""))) !== null) ids.push(m[1]);
+  function parseCitations(text, opts) {
+    opts = opts || {};
+    var ids = [], t = String(text || ""), m;
+    var re = /\[ID:([A-Za-z0-9_\-]+)\]/g;
+    while ((m = re.exec(t)) !== null) ids.push(m[1]);
+    if (opts.tolerant === true) {
+      // Checkpoint 0.6 spike: also accept a bare bracketed memory id like [m_123]
+      // (the "ID:" prefix dropped). Does not match inside [ID:m_123] (preceded by ':').
+      var re2 = /\[(m_[A-Za-z0-9]+)\]/g, m2;
+      while ((m2 = re2.exec(t)) !== null) { if (ids.indexOf(m2[1]) < 0) ids.push(m2[1]); }
+    }
     return ids;
+  }
+
+  /* -- Checkpoint 0.6: deterministic relevance / answerability guard ----------
+     A cited memory may ground an answer ONLY if it is relevant to the user's
+     query. Deterministic, model-free, conservative (defaults to NOT relevant
+     when it cannot establish a link). Two signals:
+       1) query-intent slots: a known query type must cite a memory whose
+          content matches that type (name->name, location->location, ...).
+       2) keyword-overlap fallback when no slot matches.
+     Returns { relevant, basis }. ------------------------------------------------ */
+  var REL_SLOTS = [
+    { intent: "sister",   q: /\bsister('?s)?\b/,                                                              m: /\bsister\b/ },
+    { intent: "wifi",     q: /\b(wi-?fi|password|passcode|passphrase|\bpin\b)\b/,                              m: /\b(wi-?fi|password|passcode|passphrase|\bpin\b)\b/ },
+    { intent: "birth",    q: /\b(year .*\bborn\b|when .*\bborn\b|birth ?year|how old am i|my age)\b/,           m: /\b(born|birth|18\d\d|19\d\d|20\d\d|years? old)\b/ },
+    { intent: "location", q: /\bwhere (do|am) i (live|living|located|reside)\b|\bmy (address|city|location|hometown|state)\b/, m: /\b(live|lives|living|located|reside|resides|from|city|address|hometown|state)\b/ },
+    { intent: "name",     q: /\b(what('?s| is) my name|my name|who am i)\b/,                                    m: /\bname is\b|\bcalled\b/ },
+    { intent: "job",      q: /\b(what do i do|my (job|work|occupation|profession)|where do i work)\b/,          m: /\b(work|works|job|occupation|profession|build|builds|develop|engineer|developer)\b/ },
+    { intent: "pet",      q: /\b(my (dog|cat|pet)|pet('?s)? name)\b/,                                           m: /\b(dog|cat|pet)\b/ },
+    { intent: "likes",    q: /\b(what do i like|my favou?rite|do i (like|love|enjoy))\b/,                       m: /\b(like|likes|love|loves|favou?rite|enjoy|enjoys|prefers?)\b/ }
+  ];
+  var REL_STOP = { the:1,a:1,an:1,is:1,are:1,do:1,does:1,did:1,i:1,me:1,my:1,mine:1,you:1,your:1,what:1,where:1,when:1,who:1,how:1,why:1,of:1,to:1,in:1,on:1,for:1,and:1,or:1,about:1,tell:1,know:1,remember:1,whats:1,was:1 };
+  function relevanceCheck(query, content) {
+    var q = String(query || "").toLowerCase();
+    var c = String(content || "").toLowerCase();
+    if (!q) return { relevant: false, basis: "no-query" };
+    for (var i = 0; i < REL_SLOTS.length; i++) {
+      var s = REL_SLOTS[i];
+      if (s.q.test(q)) {
+        // Known query intent: the cited memory must match that intent's content.
+        return s.m.test(c) ? { relevant: true, basis: "slot:" + s.intent }
+                           : { relevant: false, basis: "slot-miss:" + s.intent };
+      }
+    }
+    // No known intent -> require keyword overlap between query and memory.
+    var words = q.replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(function (w) { return w.length > 2 && !REL_STOP[w]; });
+    if (!words.length) return { relevant: false, basis: "no-content-words" };
+    var hit = words.filter(function (w) { return c.indexOf(w) >= 0; });
+    return hit.length > 0 ? { relevant: true, basis: "overlap:" + hit.join(",") } : { relevant: false, basis: "no-overlap" };
   }
 
   /* tagAnswer: the deterministic 'tag' stage.
@@ -140,7 +186,7 @@
     var byId = {};
     (opts.entries || []).forEach(function (e) { byId[e.id] = e; });
 
-    var cited = parseCitations(opts.answer);
+    var cited = parseCitations(opts.answer, { tolerant: opts.tolerantFormat === true });
     var validCited = cited.filter(function (id) {
       return inPrompt[id] === true && byId[id] && byId[id].user_verified === true && byId[id].superseded_by == null;
     });
@@ -151,8 +197,18 @@
     // memory — so they can never be 'grounded', even if the model cites a user fact.
     if (opts.classification === "identity") return { tag: "general", memory_ids_cited: [] };
 
-    if (validCited.length > 0) return { tag: "grounded", memory_ids_cited: validCited };
-    if (cited.length > 0) return { tag: "inferred", memory_ids_cited: [] }; // cited but unverifiable -> downgrade
+    // Checkpoint 0.6 relevance guard: a valid cited id may ground ONLY if it is
+    // relevant to the query. Enforced when opts.query is provided; if no query is
+    // given we cannot verify relevance, so (conservatively) nothing grounds.
+    var groundable = validCited;
+    if (opts.query != null && opts.query !== "") {
+      groundable = validCited.filter(function (id) { return relevanceCheck(opts.query, byId[id].content).relevant; });
+    } else if (opts.requireRelevance === true) {
+      groundable = [];
+    }
+
+    if (groundable.length > 0) return { tag: "grounded", memory_ids_cited: groundable };
+    if (cited.length > 0) return { tag: "inferred", memory_ids_cited: [] }; // cited but unverifiable/irrelevant -> downgrade
 
     // No citation:
     if (opts.classification === "identity") return { tag: "general", memory_ids_cited: [] }; // from system identity
@@ -329,6 +385,8 @@
     citationInstruction: citationInstruction, memoryRecallBlock: memoryRecallBlock, classifyCitation: classifyCitation,
     // Art 3a / 3b
     parseCitations: parseCitations, tagAnswer: tagAnswer, dangerFactCheck: dangerFactCheck,
+    // Checkpoint 0.6 — relevance guard
+    relevanceCheck: relevanceCheck,
     // Art 3 + Glass Box
     makeProvenance: makeProvenance, logProvenance: logProvenance,
     lastProvenance: lastProvenance, allProvenance: allProvenance, glassBox: glassBox
