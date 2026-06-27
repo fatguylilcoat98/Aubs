@@ -121,6 +121,28 @@ fetch('./golden-set.citations.v1.json').then(r=>r.json())
 
 function esc(s){ return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 
+// WebGPU (and the Cache API) require a SECURE CONTEXT — https or localhost.
+// Opening this page by LAN IP over plain HTTP leaves navigator.gpu undefined,
+// so WebLLM can't run. This can't be polyfilled; guide the user to a secure context.
+function showSecureContextHelp(){
+  const origin = location.protocol + '//' + location.host;
+  const port = location.port || '8080';
+  status('WebGPU is unavailable here — this page is not a secure context.');
+  document.getElementById('summary').innerHTML =
+    '<div class="panel"><h2>WebGPU needs a secure context (https or localhost)</h2>'+
+    '<p>This page is open at <code>'+esc(origin)+'</code>, which the browser treats as <b>not secure</b>. '+
+    'On a phone, WebGPU (required to run the model) and the model cache are only available over <b>HTTPS</b> or <b>localhost</b>. '+
+    'Secure context: <b>'+(window.isSecureContext?'yes':'no')+'</b> · navigator.gpu: <b>'+(('gpu' in navigator)?'present':'missing')+'</b>. '+
+    'Pick one option, then reload and Run again:</p><ol>'+
+    '<li><b>Easiest — Chrome flag:</b> open <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code>, '+
+      'put <code>'+esc(origin)+'</code> in the box, set the dropdown to <b>Enabled</b>, tap <b>Relaunch</b>, then reopen this page.</li>'+
+    '<li><b>Cleanest — USB (adb):</b> connect the phone by USB; on the computer run '+
+      '<code>adb reverse tcp:'+esc(port)+' tcp:'+esc(port)+'</code>; then open '+
+      '<code>http://localhost:'+esc(port)+'/tests/citation-harness.html</code> on the phone (localhost is secure).</li>'+
+    '<li><b>HTTPS tunnel:</b> run <code>cloudflared tunnel --url http://localhost:'+esc(port)+'</code> (or ngrok) and open the https URL it prints on the phone.</li>'+
+    '</ol><p>Desktop Chrome at <code>http://localhost</code> already works — this only affects opening by LAN IP on a phone.</p></div>';
+}
+
 // System prompt mirrors the app: identity + (optional persona) + spine memory-recall block.
 function systemPrompt(scn, entries){
   const parts = ["You are AUBS, a private on-device AI assistant. Truth · Safety · We Got Your Back. Keep replies short."];
@@ -221,6 +243,7 @@ window.runAll = async function(){
     const model = document.getElementById('model').value;
     const timeoutMs = Math.max(5, Number(document.getElementById('timeout').value)||60) * 1000;
     if(!H.engine){
+      if(typeof navigator==='undefined' || !navigator.gpu){ showSecureContextHelp(); return; }
       status('Loading '+model+' … (first run downloads the model)');
       // Use IndexedDB for model caching so this works over plain HTTP on a phone
       // (the Cache API is unavailable in non-secure contexts). In web-llm 0.2.84
