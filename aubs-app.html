@@ -611,6 +611,14 @@ window.startDownload=async function(tier){
       const pct=Math.round((r.progress||0)*100); setPct(pct,r.text||"Loading…");
       document.getElementById('dlSub').textContent=pct<100?("Loading "+chosenModel+" — happens once, then offline."):"Almost ready…";
     }});
+    // Warm up the GPU once on the loading screen: the first on-device inference can
+    // fault as WebGPU compiles kernels. Absorb it here (retry a few times) so the
+    // user's first real message doesn't take the hit. Errors are non-fatal.
+    setPct(100,"Warming up…");
+    for(let w=0; w<4; w++){
+      try{ const wc=await engine.chat.completions.create({ messages:[{role:"user",content:"Hi"}], stream:true, max_tokens:1 }); for await(const _ of wc){} break; }
+      catch(we){ console.warn('[AUBS] warmup attempt '+(w+1)+' faulted:', we); await new Promise(r=>setTimeout(r,500)); }
+    }
     enterChat(tier);
   }catch(err){
     document.getElementById('dlTitle').textContent="Something went wrong";
@@ -651,7 +659,7 @@ window.send=async function(){
     // Generate with AUTOMATIC recovery: on a WebGPU buffer fault the engine is
     // recreated and the SAME prompt is retried once — the user never has to
     // refresh. The original exception is always logged before recovery.
-    const MAX_ATTEMPTS=4;
+    const MAX_ATTEMPTS=6;
     for(let attempt=1; attempt<=MAX_ATTEMPTS; attempt++){
       try{
         full="";
@@ -677,17 +685,11 @@ window.send=async function(){
         const msg=(genErr&&genErr.message?genErr.message:String(genErr));
         console.error('[AUBS] inference error (attempt '+attempt+'):', genErr);  // (log the REAL exception)
         if(GPU_FAULT.test(msg) && attempt<MAX_ATTEMPTS){
-          // The mapAsync buffer fault on this GPU is intermittent. First try a
-          // LIGHT re-run (same engine) — a transient buffer race usually clears.
-          // Only recreate the engine as a last resort (slow, ~reload).
-          if(attempt<MAX_ATTEMPTS-1){
-            bubble.textContent="The GPU hiccupped — retrying…";
-            await new Promise(r=>setTimeout(r, 400));   // let the GPU settle
-          }else{
-            bubble.textContent="Reloading the engine…";
-            const ok=await recoverEngine();
-            if(!ok) break;                              // can't recover -> show real error below
-          }
+          // The mapAsync buffer fault is a GPU race — a plain LIGHT re-run on the
+          // same engine usually clears it. We do NOT recreate the engine: recreating
+          // it on this device produced a half-loaded "Model not loaded" state.
+          bubble.textContent="The GPU hiccupped — retrying… ("+attempt+"/"+(MAX_ATTEMPTS-1)+")";
+          await new Promise(r=>setTimeout(r, 500));   // let the GPU settle
         }else{
           break;                                        // non-GPU error, or out of retries
         }
