@@ -65,11 +65,15 @@ some legitimately-relevant citations:
 The trade is deliberate for a first pass: a missed grounding degrades to `inferred` (still honest);
 a false grounding breaks the trust promise.
 
-## Not changed
-- The live app (`aubs-app.html`) still grounds without the relevance guard. Wiring it in is one line
-  (pass `query` to `tagAnswer` in `logProvenanceFor`) and is the recommended Checkpoint 0.6
-  graduation step — held back here so the spike stays contained.
-- Article 3a (strict format) is unchanged in the Constitution; tolerance is proposed, not adopted.
+## Live wiring (Checkpoint 0.6 — now applied)
+- The live app (`aubs-app.html`) **now uses the relevance guard**: `logProvenanceFor` passes
+  `query` and `tolerantFormat:true` to `tagAnswer`, so the real app grounds only relevant citations
+  and accepts `[ID:x]`/`[m_x]`. Verified end-to-end (headless): "what's my name?" → grounded;
+  "what's my wifi password?" citing the name memory → `inferred` (blocked); `[m_x]`+relevant →
+  grounded. Article 3a is ratified in code comments in `spine/spine.js` (`tagAnswer`).
+- Manual device steps: `tests/CHECKPOINT_0.6_DEVICE_VALIDATION.md`.
+- Article 3a (strict format) is still unchanged in the **Constitution doc**; the `[m_x]` tolerance is
+  implemented + measured-safe here and proposed as an amendment for council ratification.
 
 ## Reproduce
 ```

@@ -142,10 +142,28 @@
   /* -- Checkpoint 0.6: deterministic relevance / answerability guard ----------
      A cited memory may ground an answer ONLY if it is relevant to the user's
      query. Deterministic, model-free, conservative (defaults to NOT relevant
-     when it cannot establish a link). Two signals:
-       1) query-intent slots: a known query type must cite a memory whose
-          content matches that type (name->name, location->location, ...).
-       2) keyword-overlap fallback when no slot matches.
+     when it cannot establish a link).
+
+     Query normalization:
+       - both query and memory content are lowercased;
+       - slot patterns match the lowercased query with word boundaries (\b), so
+         trailing/embedded punctuation ("what's my name?") does not interfere and
+         the apostrophe form ("what's") is handled explicitly;
+       - the keyword-overlap fallback additionally strips punctuation
+         ([^a-z0-9 ] -> space) and removes short/stopwords before comparing.
+
+     Two signals:
+       1) query-intent slots: a known query type must cite a memory whose content
+          matches that type (name->name, location->location, ...). Slots:
+          name, location, birth, sister, wifi/password, job, pet, likes.
+       2) keyword-overlap fallback when no slot matches: >=1 non-stopword from the
+          query must appear in the memory content.
+
+     Known strict cases that downgrade SAFELY (to 'inferred', never a false
+     'grounded'): out-of-slot phrasings ("Where am I?" — no live/located verb),
+     synonyms/morphology with no literal overlap ("birthplace" vs "born",
+     "cities" vs "city"), and pronoun-only queries that reduce to stopwords.
+
      Returns { relevant, basis }. ------------------------------------------------ */
   var REL_SLOTS = [
     { intent: "sister",   q: /\bsister('?s)?\b/,                                                              m: /\bsister\b/ },
@@ -197,9 +215,19 @@
     // memory — so they can never be 'grounded', even if the model cites a user fact.
     if (opts.classification === "identity") return { tag: "general", memory_ids_cited: [] };
 
-    // Checkpoint 0.6 relevance guard: a valid cited id may ground ONLY if it is
-    // relevant to the query. Enforced when opts.query is provided; if no query is
-    // given we cannot verify relevance, so (conservatively) nothing grounds.
+    // === Article 3a — Verified Grounding (RATIFIED, Checkpoint 0.6) ===
+    // A response may be tagged 'grounded' ONLY when a cited id satisfies ALL of:
+    //   1. valid citation format  — [ID:x], or [m_x] when tolerantFormat is on;
+    //   2. the id is in memory_ids_in_prompt (it was actually offered to the model);
+    //   3. the cited memory is user_verified;
+    //   4. the cited memory is not superseded (superseded_by == null);
+    //   5. the cited memory is RELEVANT to the user query (relevanceCheck).
+    // Conflicts -> unknown; identity -> general (Art. 12); anything cited but not
+    // groundable -> downgraded to 'inferred'. Conditions 1-4 are checked above
+    // (validCited); condition 5 is the relevance guard below.
+    //
+    // Relevance is enforced when opts.query is provided; if no query is given we
+    // cannot verify relevance, so (conservatively) nothing grounds.
     var groundable = validCited;
     if (opts.query != null && opts.query !== "") {
       groundable = validCited.filter(function (id) { return relevanceCheck(opts.query, byId[id].content).relevant; });

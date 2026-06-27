@@ -664,7 +664,10 @@ function logProvenanceFor(query, answer, sentMsgs, t0, aiWrap){
     const idsInPrompt=live.map(e=>e.id);
     const meta=SPINE.buildPromptMeta(sentMsgs, idsInPrompt);
     const cls=SPINE.classify(query);
-    let r=SPINE.tagAnswer({ answer, memory_ids_in_prompt:idsInPrompt, entries, classification:cls });
+    // Checkpoint 0.6 (live): grounding now requires RELEVANCE — pass the user query so
+    // tagAnswer only grounds a cited memory that actually answers it. tolerantFormat
+    // accepts the [m_x] shorthand as well as [ID:x] (still gated by relevance).
+    let r=SPINE.tagAnswer({ answer, query, memory_ids_in_prompt:idsInPrompt, entries, classification:cls, tolerantFormat:true });
     let tag=r.tag, cited=r.memory_ids_cited;
     if(!SPINE.dangerFactCheck(answer).ok){ tag='unknown'; cited=[]; }   // Article 3b override
     const latency=((window.performance&&performance.now)?performance.now():0)-t0;
