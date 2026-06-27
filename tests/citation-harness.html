@@ -84,9 +84,10 @@
   <div class="controls">
     <label>Model:
       <select id="model">
-        <option value="Llama-3.2-1B-Instruct-q4f32_1-MLC">Fast — Llama 3.2 1B</option>
-        <option value="Qwen2.5-1.5B-Instruct-q4f32_1-MLC">Qwen2.5 1.5B</option>
-        <option value="Llama-3.2-3B-Instruct-q4f32_1-MLC">Smart — Llama 3.2 3B</option>
+        <option value="Llama-3.2-1B-Instruct-q4f16_1-MLC">Fast — Llama 3.2 1B (f16, recommended)</option>
+        <option value="Qwen2.5-0.5B-Instruct-q4f16_1-MLC">Tiny — Qwen2.5 0.5B (f16)</option>
+        <option value="Llama-3.2-1B-Instruct-q4f32_1-MLC">Llama 3.2 1B (f32 — heavier)</option>
+        <option value="Llama-3.2-3B-Instruct-q4f16_1-MLC">Smart — Llama 3.2 3B (f16)</option>
       </select>
     </label>
     <label>Timeout: <input id="timeout" type="number" min="5" max="600" value="60" /> s</label>
