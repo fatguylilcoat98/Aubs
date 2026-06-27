@@ -553,8 +553,24 @@ const MODELS={
           f32:["Llama-3.2-3B-Instruct-q4f32_1-MLC","Qwen2.5-3B-Instruct-q4f32_1-MLC","Phi-3.5-mini-instruct-q4f32_1-MLC"] }
 };
 const AVAILABLE=(webllm.prebuiltAppConfig?.model_list||[]).map(m=>m.model_id);
-let hasF16=false;
-async function detectF16(){ try{ const a=await navigator.gpu.requestAdapter(); hasF16=!!(a&&a.features&&a.features.has("shader-f16")); }catch(e){ hasF16=false; } return hasF16; }
+let hasF16=false, gpuLimits=null, gpuVendor="";
+async function detectF16(){
+  try{
+    const a=await navigator.gpu.requestAdapter();
+    hasF16=!!(a&&a.features&&a.features.has("shader-f16"));
+    if(a&&a.limits) gpuLimits={ maxBufferSize:a.limits.maxBufferSize, maxStorageBufferBindingSize:a.limits.maxStorageBufferBindingSize };
+    try{ if(a&&a.requestAdapterInfo){ const info=await a.requestAdapterInfo(); gpuVendor=((info.vendor||"")+" "+(info.architecture||"")).trim(); } }catch(e){}
+  }catch(e){ hasF16=false; }
+  return hasF16;
+}
+// Compact device/model diagnostic — shown in errors so we can see what's actually loaded.
+function gpuDiagStr(){
+  const mb=(b)=>b?Math.round(b/1048576)+"MB":"?";
+  return (chosenModel||"?")+" · f16:"+hasF16+(gpuLimits?(" · maxBuf:"+mb(gpuLimits.maxBufferSize)+" · maxBind:"+mb(gpuLimits.maxStorageBufferBindingSize)):"")+(gpuVendor?(" · "+gpuVendor):"");
+}
+// Keep on-device GPU buffers small (Adreno/mobile maxStorageBufferBindingSize is
+// low; a big context window + long prefill overflows it -> mapAsync buffer faults).
+const MOBILE_ENGINE_OPTS={ context_window_size: 4096, prefill_chunk_size: 256 };
 function resolve(tier){
   const order=hasF16?[...MODELS[tier].f16,...MODELS[tier].f32]:[...MODELS[tier].f32,...MODELS[tier].f16];
   for(const id of order) if(AVAILABLE.includes(id)) return id;
@@ -573,11 +589,12 @@ window.startDownload=async function(tier){
   document.getElementById('dlTitle').textContent=tier==='fast'?'Downloading Fast…':'Downloading Smart…';
   setPct(0,"Checking your device…");
   await detectF16(); chosenModel=resolve(tier); setPct(0,"Starting…");
+  console.log("[AUBS] device:", gpuDiagStr());            // visible with remote debugging
   try{
     engine=await webllm.CreateMLCEngine(chosenModel,{ initProgressCallback:(r)=>{
       const pct=Math.round((r.progress||0)*100); setPct(pct,r.text||"Loading…");
-      document.getElementById('dlSub').textContent=pct<100?"Downloading and preparing the model. This happens once — then it's offline forever.":"Almost ready…";
-    }});
+      document.getElementById('dlSub').textContent=pct<100?("Loading "+chosenModel+" — happens once, then offline."):"Almost ready…";
+    }}, MOBILE_ENGINE_OPTS);
     enterChat(tier);
   }catch(err){
     document.getElementById('dlTitle').textContent="Something went wrong";
@@ -596,7 +613,7 @@ window.keys=(e)=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); window.
 async function recoverEngine(){
   try{ if(engine && engine.unload) await engine.unload(); }catch(e){}
   try{
-    engine = await webllm.CreateMLCEngine(chosenModel, { initProgressCallback:()=>{} });
+    engine = await webllm.CreateMLCEngine(chosenModel, { initProgressCallback:()=>{} }, MOBILE_ENGINE_OPTS);
     return true;
   }catch(e){ console.error('[AUBS] engine recovery (reload) failed:', e); return false; }
 }
@@ -661,9 +678,10 @@ window.send=async function(){
     }else if(fatalErr){
       // Recovery impossible -> show the REAL error, never a generic "refresh" message.
       const m=(fatalErr.message||String(fatalErr));
+      console.error('[AUBS] unrecoverable:', m, '·', gpuDiagStr());
       bubble.textContent = GPU_FAULT.test(m)
-        ? ("The on-device engine couldn't recover. Error: "+m+" — try reloading the page.")
-        : ("Error: "+m);
+        ? ("The on-device engine couldn't recover. ["+gpuDiagStr()+"] Error: "+m)
+        : ("Error: "+m+"  ["+gpuDiagStr()+"]");
     }else{
       bubble.textContent="(No text came back. finish: "+(finish||"?")+" · model: "+(chosenModel||"?")+". Tap send again.)";
     }
