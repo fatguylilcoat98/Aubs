@@ -547,11 +547,15 @@ function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg
 applyAppearance();
 
 const MODELS={
-  fast:{ f16:["Llama-3.2-1B-Instruct-q4f16_1-MLC","Qwen2.5-1.5B-Instruct-q4f16_1-MLC","TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC"],
-         f32:["Llama-3.2-1B-Instruct-q4f32_1-MLC","Qwen2.5-1.5B-Instruct-q4f32_1-MLC","TinyLlama-1.1B-Chat-v1.0-q4f32_1-MLC","SmolLM2-1.7B-Instruct-q4f32_1-MLC"] },
-  smart:{ f16:["Llama-3.2-3B-Instruct-q4f16_1-MLC","Qwen2.5-3B-Instruct-q4f16_1-MLC"],
+  fast:{ f16:["Llama-3.2-1B-Instruct-q4f16_1-MLC","Qwen2.5-1.5B-Instruct-q4f16_1-MLC","SmolLM2-1.7B-Instruct-q4f16_1-MLC","TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC"],
+         f32:["Llama-3.2-1B-Instruct-q4f32_1-MLC","Qwen2.5-1.5B-Instruct-q4f32_1-MLC","SmolLM2-1.7B-Instruct-q4f32_1-MLC","TinyLlama-1.1B-Chat-v1.0-q4f32_1-MLC"] },
+  smart:{ f16:["Llama-3.2-3B-Instruct-q4f16_1-MLC","Qwen2.5-3B-Instruct-q4f16_1-MLC","Phi-3.5-mini-instruct-q4f16_1-MLC"],
           f32:["Llama-3.2-3B-Instruct-q4f32_1-MLC","Qwen2.5-3B-Instruct-q4f32_1-MLC","Phi-3.5-mini-instruct-q4f32_1-MLC"] }
 };
+// Small-vocabulary models — their embedding/output buffers stay well under a tight
+// mobile GPU binding limit (Adreno ~128MB). Large-vocab models (Llama-3.2 128k,
+// Qwen2.5 152k) overflow it and trigger the mapAsync buffer fault.
+const SMALL_VOCAB=/TinyLlama|SmolLM|Phi-3/i;
 const AVAILABLE=(webllm.prebuiltAppConfig?.model_list||[]).map(m=>m.model_id);
 let hasF16=false, gpuLimits=null, gpuVendor="";
 async function detectF16(){
@@ -563,18 +567,29 @@ async function detectF16(){
   }catch(e){ hasF16=false; }
   return hasF16;
 }
+// A GPU whose single-buffer binding limit is tight (mobile/Adreno ~128MB) can't fit
+// the embedding/output buffers of large-vocab models -> use small-vocab models instead.
+function bindingTight(){
+  const lim=gpuLimits&&gpuLimits.maxStorageBufferBindingSize;
+  return !!lim && lim <= 160*1048576;   // <=160MB
+}
 // Compact device/model diagnostic — shown in errors so we can see what's actually loaded.
 function gpuDiagStr(){
   const mb=(b)=>b?Math.round(b/1048576)+"MB":"?";
-  return (chosenModel||"?")+" · f16:"+hasF16+(gpuLimits?(" · maxBuf:"+mb(gpuLimits.maxBufferSize)+" · maxBind:"+mb(gpuLimits.maxStorageBufferBindingSize)):"")+(gpuVendor?(" · "+gpuVendor):"");
+  return (chosenModel||"?")+" · f16:"+hasF16+(gpuLimits?(" · maxBuf:"+mb(gpuLimits.maxBufferSize)+" · maxBind:"+mb(gpuLimits.maxStorageBufferBindingSize)+(bindingTight()?" · TIGHT":"")):"")+(gpuVendor?(" · "+gpuVendor):"");
 }
-// Keep on-device GPU buffers small (Adreno/mobile maxStorageBufferBindingSize is
-// low; a big context window + long prefill overflows it -> mapAsync buffer faults).
-const MOBILE_ENGINE_OPTS={ context_window_size: 4096, prefill_chunk_size: 256 };
+// context_window_size IS honored at runtime (KV-cache size). prefill_chunk_size is
+// NOT — web-llm reads it from the compiled model metadata — so we don't set it here.
+const MOBILE_ENGINE_OPTS={ context_window_size: 2048 };
 function resolve(tier){
-  const order=hasF16?[...MODELS[tier].f16,...MODELS[tier].f32]:[...MODELS[tier].f32,...MODELS[tier].f16];
+  let order=hasF16?[...MODELS[tier].f16,...MODELS[tier].f32]:[...MODELS[tier].f32,...MODELS[tier].f16];
+  if(bindingTight()){
+    // Prefer small-vocab models so their buffers fit under the tight binding limit.
+    order=[...order.filter(id=>SMALL_VOCAB.test(id)), ...order.filter(id=>!SMALL_VOCAB.test(id))];
+  }
   for(const id of order) if(AVAILABLE.includes(id)) return id;
-  return AVAILABLE.find(id=>/q4f32/i.test(id)&&/instruct|chat/i.test(id))||AVAILABLE[0];
+  return AVAILABLE.find(id=>SMALL_VOCAB.test(id)&&/q4f16|q4f32/i.test(id))
+      || AVAILABLE.find(id=>/q4f32/i.test(id)&&/instruct|chat/i.test(id)) || AVAILABLE[0];
 }
 let engine=null, chosenModel=null, currentTier='fast';
 function hasWebGPU(){ return typeof navigator!=="undefined" && !!navigator.gpu; }
