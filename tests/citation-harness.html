@@ -7,42 +7,67 @@
 <!-- Loads the REAL spine so scoring matches the app exactly. -->
 <script src="../spine/spine.js"></script>
 <style>
-  body{font:14px/1.5 system-ui,sans-serif;margin:18px;color:#0d1124;background:#f4f6fc}
-  h1{font-size:18px;margin:0 0 4px}
-  .meta{color:#5a6080;margin-bottom:14px}
-  .controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
-  select,button{font:inherit;padding:8px 12px;border-radius:8px;border:1px solid #c3c9dd;background:#fff}
+  body{font:14px/1.55 system-ui,sans-serif;margin:18px;color:#0d1124;background:#f4f6fc}
+  h1{font-size:19px;margin:0 0 4px}
+  .meta{color:#5a6080;margin-bottom:12px}
+  .panel{background:#fff;border:1px solid #e1e5f0;border-radius:10px;padding:14px 16px;margin-bottom:14px}
+  .panel h2{font-size:14px;margin:0 0 8px}
+  ol{margin:6px 0 0 18px;padding:0}
+  ol li{margin:2px 0}
+  .controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  label{font-weight:600}
+  select,button,input{font:inherit;padding:8px 12px;border-radius:8px;border:1px solid #c3c9dd;background:#fff}
+  input[type=number]{width:72px}
   button{cursor:pointer;background:#2B8CFF;color:#fff;border:0}
+  button.secondary{background:#fff;color:#2B8CFF;border:1px solid #2B8CFF}
   button:disabled{opacity:.5;cursor:default}
   #status{margin:10px 0;color:#2B8CFF;min-height:20px}
   table{border-collapse:collapse;width:100%;background:#fff;font-size:12.5px}
   th,td{border:1px solid #e1e5f0;padding:6px 8px;vertical-align:top;text-align:left}
   th{background:#eef2fb;position:sticky;top:0}
-  td.ans{max-width:380px;white-space:pre-wrap}
+  td.ans{max-width:360px;white-space:pre-wrap}
   .tag-grounded{color:#0a7d2c;font-weight:600}
-  .tag-inferred{color:#9466ff}
+  .tag-inferred{color:#7c3aed}
   .tag-general{color:#5a6080}
-  .tag-unknown{color:#c2410c}
-  .out-cited_correct{color:#0a7d2c}
-  .out-omitted,.out-cited_nonexistent,.out-cited_wrong_in_prompt,.out-cited_when_none_expected{color:#c2410c}
-  pre{background:#fff;border:1px solid #e1e5f0;border-radius:8px;padding:10px;white-space:pre-wrap}
+  .tag-unknown,.tag-timeout,.tag-error{color:#c2410c}
+  .out-cited_correct,.out-correct_no_citation{color:#0a7d2c}
+  .out-omitted,.out-cited_nonexistent,.out-cited_wrong_in_prompt,.out-cited_when_none_expected,.out-timeout,.out-error{color:#c2410c}
+  #summary{margin-top:14px}
+  #summary table{max-width:520px}
+  #report{width:100%;height:200px;margin-top:10px;font:12px/1.4 ui-monospace,Menlo,monospace;display:none}
 </style>
 </head>
 <body>
 <h1>AUBS Citation Reliability Harness</h1>
 <div class="meta">Checkpoint 0.5 evidence-gathering · spine <span id="ver">?</span> · flags <span id="flags">?</span> · this is a TEST tool, not the app.</div>
 
-<div class="controls">
-  <label>Model:
-    <select id="model">
-      <option value="Llama-3.2-1B-Instruct-q4f32_1-MLC">Fast — Llama 3.2 1B</option>
-      <option value="Qwen2.5-1.5B-Instruct-q4f32_1-MLC">Qwen2.5 1.5B</option>
-      <option value="Llama-3.2-3B-Instruct-q4f32_1-MLC">Smart — Llama 3.2 3B</option>
-    </select>
-  </label>
-  <button id="run">Run all scenarios</button>
+<div class="panel">
+  <h2>How to run (for Chris)</h2>
+  <ol>
+    <li>You're already here, so the page loaded — good.</li>
+    <li>Pick a <b>Model</b> below (start with <i>Fast — Llama 3.2 1B</i>). First run downloads the model once.</li>
+    <li>Press <b>Run all scenarios</b>. Each row fills in with the model's answer, the IDs it cited, the outcome, and the tag.</li>
+    <li>When it says <b>Done</b>, press <b>Copy results</b> (or <b>Download .md</b>) and paste them back to me.</li>
+    <li>Optional: change the <b>Model</b> and run again to compare. Adjust <b>Timeout</b> if a slow device stalls a row.</li>
+  </ol>
 </div>
-<div id="status">Loading scenarios…</div>
+
+<div class="panel">
+  <div class="controls">
+    <label>Model:
+      <select id="model">
+        <option value="Llama-3.2-1B-Instruct-q4f32_1-MLC">Fast — Llama 3.2 1B</option>
+        <option value="Qwen2.5-1.5B-Instruct-q4f32_1-MLC">Qwen2.5 1.5B</option>
+        <option value="Llama-3.2-3B-Instruct-q4f32_1-MLC">Smart — Llama 3.2 3B</option>
+      </select>
+    </label>
+    <label>Timeout: <input id="timeout" type="number" min="5" max="600" value="60" /> s</label>
+    <button id="run">Run all scenarios</button>
+    <button id="copy" class="secondary" disabled>Copy results</button>
+    <button id="download" class="secondary" disabled>Download .md</button>
+  </div>
+  <div id="status">Loading scenarios…</div>
+</div>
 
 <table id="results">
   <thead><tr>
@@ -51,18 +76,19 @@
   <tbody></tbody>
 </table>
 <div id="summary"></div>
+<textarea id="report" readonly></textarea>
 
 <script type="module">
 import * as webllm from "https://esm.run/@mlc-ai/web-llm@0.2.84";
 const SPINE = window.AUBS_SPINE;
-const H = window.H = { engine:null, results:[] };               // engine settable for offline test injection
+const H = window.H = { engine:null, results:[], report:"" };   // engine settable for offline test injection
 document.getElementById('ver').textContent = SPINE.SPINE_VERSION;
 document.getElementById('flags').textContent = SPINE.activeFlags().join(',') || 'none';
 
-let SCEN = [];
+let SCEN = [], GS_VERSION = "";
 const status = (m)=>{ document.getElementById('status').textContent = m; };
 fetch('./golden-set.citations.v1.json').then(r=>r.json())
-  .then(j=>{ SCEN = j.scenarios; status('Loaded '+SCEN.length+' scenarios ('+j.version+'). Pick a model and press Run.'); })
+  .then(j=>{ SCEN = j.scenarios; GS_VERSION = j.version; status('Loaded '+SCEN.length+' scenarios ('+j.version+'). Pick a model and press Run.'); })
   .catch(e=>status('Could not load scenarios: '+e.message));
 
 function esc(s){ return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
@@ -76,55 +102,147 @@ function systemPrompt(scn, entries){
   return parts.join("\n\n");
 }
 
-async function runOne(scn){
+function withTimeout(promise, ms){
+  return Promise.race([
+    promise,
+    new Promise((_, rej)=>setTimeout(()=>rej(new Error('timeout after '+(ms/1000)+'s')), ms))
+  ]);
+}
+
+async function runOne(scn, timeoutMs){
   const entries = SPINE.adaptMemories(scn.memory || []);
   const ids = entries.map(e=>e.id);
   const expected_id = (scn.expected_index!=null && entries[scn.expected_index]) ? entries[scn.expected_index].id : null;
   const sys = systemPrompt(scn, entries);
-  const res = await H.engine.chat.completions.create({
+  const res = await withTimeout(H.engine.chat.completions.create({
     messages:[{role:'system',content:sys},{role:'user',content:scn.prompt}], temperature:0.2, max_tokens:220
-  });
+  }), timeoutMs);
   const answer = (res && res.choices && res.choices[0] && res.choices[0].message && res.choices[0].message.content) || "";
   const cited = SPINE.parseCitations(answer);
   const classification = SPINE.classify(scn.prompt);
   const outcome = SPINE.classifyCitation({ answer, memory_ids_in_prompt:ids, entries, expected_id });
   let r = SPINE.tagAnswer({ answer, memory_ids_in_prompt:ids, entries, classification, conflict: scn.conflict===true });
   let tag = r.tag; if(!SPINE.dangerFactCheck(answer).ok) tag='unknown';
-  return { id:scn.id, name:scn.name, prompt:scn.prompt, expected: expected_id||'(none)', answer, cited: cited.join(', ')||'(none)', outcome, tag };
+  return { id:scn.id, name:scn.name, prompt:scn.prompt, expected: expected_id||'(none)', expect_citation: !!scn.expect_citation, answer, cited: cited.join(', ')||'(none)', outcome, tag };
+}
+
+function summarize(model){
+  const t = {}, tags = { grounded:0, inferred:0, general:0, unknown:0 };
+  let timeouts=0, errors=0;
+  for(const r of H.results){
+    t[r.outcome] = (t[r.outcome]||0)+1;
+    if(tags[r.tag]!==undefined) tags[r.tag]++;
+    if(r.outcome==='timeout') timeouts++;
+    if(r.outcome==='error') errors++;
+  }
+  const total = H.results.length;
+  const expectedCases = SCEN.filter(s=>s.expect_citation).length;
+  const correct = t['cited_correct']||0;
+  return {
+    model, total, expectedCases,
+    correct,
+    wrong: t['cited_wrong_in_prompt']||0,
+    missing: t['omitted']||0,
+    nonexistent: t['cited_nonexistent']||0,
+    cited_when_none_expected: t['cited_when_none_expected']||0,
+    correct_no_citation: t['correct_no_citation']||0,
+    timeouts, errors, tags
+  };
+}
+
+function buildReport(s){
+  const L = [];
+  L.push("AUBS Citation Reliability — Checkpoint 0.5");
+  L.push("Model: "+s.model);
+  L.push("Spine: "+SPINE.SPINE_VERSION+"  ·  Flags: "+(SPINE.activeFlags().join(',')||'none')+"  ·  Set: "+GS_VERSION);
+  L.push("");
+  L.push("| # | Scenario | Prompt | Expected ID | IDs cited | Outcome | Tag | Answer |");
+  L.push("|---|----------|--------|-------------|-----------|---------|-----|--------|");
+  for(const r of H.results){
+    const ans = String(r.answer).replace(/\s*\n\s*/g, ' ').slice(0,300);
+    L.push("| "+r.id+" | "+r.name+" | "+r.prompt+" | "+r.expected+" | "+r.cited+" | "+r.outcome+" | "+r.tag+" | "+ans+" |");
+  }
+  L.push("");
+  L.push("Summary");
+  L.push("- Total scenarios: "+s.total);
+  L.push("- Correct citations (cited_correct): "+s.correct+" / "+s.expectedCases+" citation-expected");
+  L.push("- Wrong citations (cited_wrong_in_prompt): "+s.wrong);
+  L.push("- Missing citations (omitted): "+s.missing);
+  L.push("- Nonexistent citations (cited_nonexistent): "+s.nonexistent);
+  L.push("- Cited when none expected: "+s.cited_when_none_expected);
+  L.push("- Correct no-citation: "+s.correct_no_citation);
+  L.push("- Timeouts: "+s.timeouts+"  ·  Errors: "+s.errors);
+  L.push("- Tags: grounded "+s.tags.grounded+" · inferred "+s.tags.inferred+" · general "+s.tags.general+" · unknown "+s.tags.unknown);
+  return L.join("\n");
 }
 
 window.runAll = async function(){
   const btn = document.getElementById('run'); btn.disabled = true;
+  document.getElementById('copy').disabled = true; document.getElementById('download').disabled = true;
   try{
     const model = document.getElementById('model').value;
+    const timeoutMs = Math.max(5, Number(document.getElementById('timeout').value)||60) * 1000;
     if(!H.engine){
       status('Loading '+model+' … (first run downloads the model)');
       H.engine = await webllm.CreateMLCEngine(model, { initProgressCallback:(p)=>status('Loading: '+Math.round((p.progress||0)*100)+'% '+(p.text||'')) });
     }
-    status('Running '+SCEN.length+' scenarios…');
+    status('Running '+SCEN.length+' scenarios (timeout '+(timeoutMs/1000)+'s each)…');
     const tbody = document.querySelector('#results tbody'); tbody.innerHTML=''; H.results=[];
-    const tally = {};
     for(const scn of SCEN){
       let row;
-      try{ row = await runOne(scn); }
-      catch(e){ row = { id:scn.id, name:scn.name, prompt:scn.prompt, expected:'', answer:'ERROR: '+e.message, cited:'', outcome:'error', tag:'error' }; }
-      H.results.push(row); tally[row.outcome] = (tally[row.outcome]||0)+1;
+      try{ row = await runOne(scn, timeoutMs); }
+      catch(e){
+        const isTimeout = /timeout/i.test(e.message);
+        row = { id:scn.id, name:scn.name, prompt:scn.prompt, expected:'', answer:(isTimeout?'(timed out)':'ERROR: '+e.message), cited:'(none)', outcome:(isTimeout?'timeout':'error'), tag:(isTimeout?'timeout':'error') };
+      }
+      H.results.push(row);
       const tr = document.createElement('tr');
       tr.innerHTML = '<td>'+row.id+'</td><td>'+esc(row.name)+'</td><td>'+esc(row.prompt)+'</td><td>'+esc(row.expected)+
         '</td><td class="ans">'+esc(row.answer)+'</td><td>'+esc(row.cited)+'</td>'+
         '<td class="out-'+row.outcome+'">'+row.outcome+'</td><td class="tag-'+row.tag+'">'+row.tag+'</td>';
       tbody.appendChild(tr);
     }
-    const expectedCases = SCEN.filter(s=>s.expect_citation).length;
-    const correct = tally['cited_correct'] || 0;
+    const s = summarize(model);
+    H.report = buildReport(s);
     document.getElementById('summary').innerHTML =
-      '<h3>Summary</h3><pre>'+esc(JSON.stringify(tally,null,2))+'</pre>'+
-      '<p><b>Citation reliability</b> (cited_correct / citation-expected): '+correct+' / '+expectedCases+'</p>'+
-      '<p>Record: model = <code>'+esc(document.getElementById('model').value)+'</code>. Copy the table + this summary into your report.</p>';
-    status('Done.');
+      '<h3>Summary</h3><table>'+
+      '<tr><td>Total scenarios</td><td><b>'+s.total+'</b></td></tr>'+
+      '<tr><td>Correct citations</td><td><b>'+s.correct+'</b> / '+s.expectedCases+' citation-expected</td></tr>'+
+      '<tr><td>Wrong citations</td><td>'+s.wrong+'</td></tr>'+
+      '<tr><td>Missing citations</td><td>'+s.missing+'</td></tr>'+
+      '<tr><td>Nonexistent citations</td><td>'+s.nonexistent+'</td></tr>'+
+      '<tr><td>Cited when none expected</td><td>'+s.cited_when_none_expected+'</td></tr>'+
+      '<tr><td>Correct no-citation</td><td>'+s.correct_no_citation+'</td></tr>'+
+      '<tr><td>Timeouts / Errors</td><td>'+s.timeouts+' / '+s.errors+'</td></tr>'+
+      '<tr><td>Tags</td><td>grounded '+s.tags.grounded+' · inferred '+s.tags.inferred+' · general '+s.tags.general+' · unknown '+s.tags.unknown+'</td></tr>'+
+      '</table>';
+    document.getElementById('report').value = H.report;
+    document.getElementById('copy').disabled = false;
+    document.getElementById('download').disabled = false;
+    status('Done. Press "Copy results" or "Download .md" and send them back.');
   } finally { btn.disabled = false; }
 };
+
 document.getElementById('run').onclick = ()=>window.runAll().catch(e=>status('Error: '+e.message));
+
+document.getElementById('copy').onclick = async function(){
+  const text = H.report || '';
+  try{ await navigator.clipboard.writeText(text); status('Copied results to clipboard. Paste them back to Chris.'); }
+  catch(e){
+    const ta = document.getElementById('report'); ta.style.display='block'; ta.select();
+    try{ document.execCommand('copy'); status('Copied (via fallback). If not, select the text box below and copy manually.'); }
+    catch(_){ status('Could not auto-copy — select the text box below and copy manually.'); }
+  }
+};
+document.getElementById('download').onclick = function(){
+  const blob = new Blob([H.report||''], {type:'text/markdown'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'citation-results.md';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+  status('Downloaded citation-results.md');
+};
 </script>
 </body>
 </html>
