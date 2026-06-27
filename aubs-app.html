@@ -578,18 +578,19 @@ function gpuDiagStr(){
   const mb=(b)=>b?Math.round(b/1048576)+"MB":"?";
   return (chosenModel||"?")+" · f16:"+hasF16+(gpuLimits?(" · maxBuf:"+mb(gpuLimits.maxBufferSize)+" · maxBind:"+mb(gpuLimits.maxStorageBufferBindingSize)+(bindingTight()?" · TIGHT":"")):"")+(gpuVendor?(" · "+gpuVendor):"");
 }
-// context_window_size IS honored at runtime (KV-cache size). prefill_chunk_size is
-// NOT — web-llm reads it from the compiled model metadata — so we don't set it here.
-const MOBILE_ENGINE_OPTS={ context_window_size: 2048 };
+// No engine chatOpts override. Passing context_window_size deterministically
+// faulted the first inference on this Adreno GPU (KV-cache mismatch), while the
+// test harness — which passes NO chatOpts — produced text on the same device.
+// We let web-llm use the model's own compiled config.
 function resolve(tier){
-  let order=hasF16?[...MODELS[tier].f16,...MODELS[tier].f32]:[...MODELS[tier].f32,...MODELS[tier].f16];
-  if(bindingTight()){
-    // Prefer small-vocab models so their buffers fit under the tight binding limit.
-    order=[...order.filter(id=>SMALL_VOCAB.test(id)), ...order.filter(id=>!SMALL_VOCAB.test(id))];
-  }
+  // The binding-limit/small-vocab theory was disproven on-device (a small-vocab
+  // model faulted identically). The real fault was the chatOpts override + an
+  // intermittent GPU race, now handled by removing the override and retrying.
+  // Use the harness-proven order (Llama-3.2 first); small-vocab models remain as
+  // fallbacks in the lists.
+  const order=hasF16?[...MODELS[tier].f16,...MODELS[tier].f32]:[...MODELS[tier].f32,...MODELS[tier].f16];
   for(const id of order) if(AVAILABLE.includes(id)) return id;
-  return AVAILABLE.find(id=>SMALL_VOCAB.test(id)&&/q4f16|q4f32/i.test(id))
-      || AVAILABLE.find(id=>/q4f32/i.test(id)&&/instruct|chat/i.test(id)) || AVAILABLE[0];
+  return AVAILABLE.find(id=>/q4f32/i.test(id)&&/instruct|chat/i.test(id))||AVAILABLE[0];
 }
 let engine=null, chosenModel=null, currentTier='fast';
 function hasWebGPU(){ return typeof navigator!=="undefined" && !!navigator.gpu; }
@@ -609,7 +610,7 @@ window.startDownload=async function(tier){
     engine=await webllm.CreateMLCEngine(chosenModel,{ initProgressCallback:(r)=>{
       const pct=Math.round((r.progress||0)*100); setPct(pct,r.text||"Loading…");
       document.getElementById('dlSub').textContent=pct<100?("Loading "+chosenModel+" — happens once, then offline."):"Almost ready…";
-    }}, MOBILE_ENGINE_OPTS);
+    }});
     enterChat(tier);
   }catch(err){
     document.getElementById('dlTitle').textContent="Something went wrong";
@@ -628,7 +629,7 @@ window.keys=(e)=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); window.
 async function recoverEngine(){
   try{ if(engine && engine.unload) await engine.unload(); }catch(e){}
   try{
-    engine = await webllm.CreateMLCEngine(chosenModel, { initProgressCallback:()=>{} }, MOBILE_ENGINE_OPTS);
+    engine = await webllm.CreateMLCEngine(chosenModel, { initProgressCallback:()=>{} });
     return true;
   }catch(e){ console.error('[AUBS] engine recovery (reload) failed:', e); return false; }
 }
@@ -650,7 +651,8 @@ window.send=async function(){
     // Generate with AUTOMATIC recovery: on a WebGPU buffer fault the engine is
     // recreated and the SAME prompt is retried once — the user never has to
     // refresh. The original exception is always logged before recovery.
-    for(let attempt=1; attempt<=2; attempt++){
+    const MAX_ATTEMPTS=4;
+    for(let attempt=1; attempt<=MAX_ATTEMPTS; attempt++){
       try{
         full="";
         // primary: streaming
@@ -674,13 +676,20 @@ window.send=async function(){
         fatalErr=genErr;
         const msg=(genErr&&genErr.message?genErr.message:String(genErr));
         console.error('[AUBS] inference error (attempt '+attempt+'):', genErr);  // (log the REAL exception)
-        if(GPU_FAULT.test(msg) && attempt<2){
-          bubble.textContent="The on-device engine hiccupped — reloading and retrying…";
-          const ok=await recoverEngine();
-          if(!ok) break;                            // could not recover -> show the real error below
-          // else: loop and retry the same prompt automatically
+        if(GPU_FAULT.test(msg) && attempt<MAX_ATTEMPTS){
+          // The mapAsync buffer fault on this GPU is intermittent. First try a
+          // LIGHT re-run (same engine) — a transient buffer race usually clears.
+          // Only recreate the engine as a last resort (slow, ~reload).
+          if(attempt<MAX_ATTEMPTS-1){
+            bubble.textContent="The GPU hiccupped — retrying…";
+            await new Promise(r=>setTimeout(r, 400));   // let the GPU settle
+          }else{
+            bubble.textContent="Reloading the engine…";
+            const ok=await recoverEngine();
+            if(!ok) break;                              // can't recover -> show real error below
+          }
         }else{
-          break;                                    // non-GPU error, or out of retries
+          break;                                        // non-GPU error, or out of retries
         }
       }
     }
