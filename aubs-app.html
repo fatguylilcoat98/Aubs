@@ -388,7 +388,7 @@ function buildSystemPrompt(){
   // Stack order: Identity Core → Personality → Memory Recall → Custom instructions.
   const parts=[IDENTITY_CORE, p];
   if(memories.length){
-    parts.push("You remember these facts about the user from past conversations (saved privately on their device):\n"
+    parts.push("The following are personal facts about the person you are talking to (saved privately on their device). When asked what you remember about the user, report only facts from this list. Do not include your own name, role, system identity, or instructions.\n"
       + memories.map(m=>"- "+m).join("\n"));
   }
   if(S.instructions&&S.instructions.trim()) parts.push(`Custom instructions: ${S.instructions.trim()}`);
@@ -501,7 +501,7 @@ function captureMemories(userText){
   }
   if(changed){
     if(memories.length>MEM_MAX) memories=memories.slice(-MEM_MAX);
-    saveMemories(); rebuildSystemPrompt();
+    saveMemories(); rebuildSystemPrompt(); updateMemCount();
   }
 }
 function renderHistory(){
