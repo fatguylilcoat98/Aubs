@@ -330,8 +330,11 @@ body{background:var(--bgbase);color:var(--ink);font-family:var(--font-body);
 
 <div class="toast" id="toast"></div>
 
+<!-- AUBS Spine (Checkpoint 0) — deterministic truth core, loaded before the app module -->
+<script src="spine/spine.js"></script>
 <script type="module">
 import * as webllm from "https://esm.run/@mlc-ai/web-llm@0.2.84";
+const SPINE = (typeof window!=="undefined" && window.AUBS_SPINE) ? window.AUBS_SPINE : null;
 
 const DEFAULTS = { aiName:"AUBS", userName:"", tones:[], instructions:"", theme:"midnight", c1:"#4FD4FF", c2:"#9B4DFF", bg:"" };
 let S = load();
@@ -553,7 +556,7 @@ function resolve(tier){
   for(const id of order) if(AVAILABLE.includes(id)) return id;
   return AVAILABLE.find(id=>/q4f32/i.test(id)&&/instruct|chat/i.test(id))||AVAILABLE[0];
 }
-let engine=null, chosenModel=null;
+let engine=null, chosenModel=null, currentTier='fast';
 function hasWebGPU(){ return typeof navigator!=="undefined" && !!navigator.gpu; }
 if(!hasWebGPU()){
   const w=document.getElementById('gpuWarn'); w.classList.add('show');
@@ -579,7 +582,7 @@ window.startDownload=async function(tier){
   }
 };
 function setPct(p,text){ document.getElementById('barFill').style.width=p+"%"; document.getElementById('pctText').textContent=text||(p+"%"); }
-function enterChat(tier){ document.getElementById('chatModel').textContent=S.aiName+(tier==='fast'?' · Fast':' · Smart'); document.getElementById('greetWho').textContent=S.aiName.toUpperCase(); show('chat'); renderHistory(); setTimeout(()=>document.getElementById('box').focus(),300); }
+function enterChat(tier){ currentTier=tier; document.getElementById('chatModel').textContent=S.aiName+(tier==='fast'?' · Fast':' · Smart'); document.getElementById('greetWho').textContent=S.aiName.toUpperCase(); show('chat'); renderHistory(); setTimeout(()=>document.getElementById('box').focus(),300); }
 function show(id){ document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active')); document.getElementById(id).classList.add('active'); }
 window.grow=(t)=>{ t.style.height='auto'; t.style.height=Math.min(t.scrollHeight,120)+'px'; };
 window.keys=(e)=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); window.send(); } };
@@ -594,9 +597,11 @@ window.send=async function(){
   aiWrap.innerHTML='<div class="who">'+S.aiName.toUpperCase()+'</div><div class="bubble"><span class="dots"><i></i><i></i><i></i></span></div>';
   thread.appendChild(aiWrap); const bubble=aiWrap.querySelector('.bubble'); thread.scrollTop=thread.scrollHeight; sendBtn.disabled=true;
   let full=""; let finish="";
+  const t0=(window.performance&&performance.now)?performance.now():0;
+  const sent=contextMessages();                  // exact messages sent to the model (logged in provenance)
   try{
     // primary: streaming
-    const chunks=await engine.chat.completions.create({ messages:contextMessages(), stream:true, temperature:0.7, max_tokens:512 });
+    const chunks=await engine.chat.completions.create({ messages:sent, stream:true, temperature:0.7, max_tokens:512 });
     for await (const c of chunks){
       const ch=c.choices?.[0];
       full += ch?.delta?.content || "";
@@ -605,7 +610,7 @@ window.send=async function(){
     }
     // fallback ONLY if literally nothing came back at all
     if(full.length===0){
-      const res=await engine.chat.completions.create({ messages:contextMessages(), stream:false, temperature:0.7, max_tokens:512 });
+      const res=await engine.chat.completions.create({ messages:sent, stream:false, temperature:0.7, max_tokens:512 });
       full = res?.choices?.[0]?.message?.content || "";
       finish = res?.choices?.[0]?.finish_reason || finish;
     }
@@ -614,6 +619,7 @@ window.send=async function(){
       history.push({role:"assistant",content:full});
       saveHistory(history.slice(1));                 // persist turns (not the system prompt)
       captureMemories(text);                         // auto-extract durable facts from the user's message
+      logProvenanceFor(text, full, sent, t0, aiWrap); // Checkpoint 0 spine: write provenance + Glass Box trace
     }else{
       bubble.textContent="(No text came back. finish: "+(finish||"?")+" · model: "+(chosenModel||"?")+". Tap send again.)";
     }
@@ -639,6 +645,48 @@ function addMsg(role,text){
   const thread=document.getElementById('thread'); const el=document.createElement('div'); el.className='msg '+role;
   el.innerHTML='<div class="who">'+(role==='user'?(S.userName?S.userName.toUpperCase():'YOU'):S.aiName.toUpperCase())+'</div><div class="bubble"></div>';
   el.querySelector('.bubble').textContent=text; thread.appendChild(el); thread.scrollTop=thread.scrollHeight;
+}
+
+/* ─── Checkpoint 0 spine: per-response provenance + Glass Box trace ───
+   Deterministic, runs AFTER generation, wrapped so it can never break chat.
+   The live system prompt injects all live memories, so memory_ids_in_prompt =
+   every live memory id (honest). Grounding requires a verified [ID:x] citation
+   (Article 3a); danger topics get the geo fact-check floor (Article 3b). */
+function logProvenanceFor(query, answer, sentMsgs, t0, aiWrap){
+  if(!SPINE) return;
+  try{
+    const entries=SPINE.adaptMemories(memories);
+    const live=SPINE.liveEntries(entries);
+    const idsInPrompt=live.map(e=>e.id);
+    const meta=SPINE.buildPromptMeta(sentMsgs, idsInPrompt);
+    const cls=SPINE.classify(query);
+    let r=SPINE.tagAnswer({ answer, memory_ids_in_prompt:idsInPrompt, entries, classification:cls });
+    let tag=r.tag, cited=r.memory_ids_cited;
+    if(!SPINE.dangerFactCheck(answer).ok){ tag='unknown'; cited=[]; }   // Article 3b override
+    const latency=((window.performance&&performance.now)?performance.now():0)-t0;
+    const prov=SPINE.makeProvenance({
+      query, timestamp:(typeof Date!=='undefined'?Date.now():0),
+      prompt_hash:meta.prompt_hash, memory_ids_in_prompt:idsInPrompt, memory_ids_cited:cited,
+      tag, tier_used:(currentTier==='fast'?'low':'mid'), flags_active:SPINE.activeFlags(),
+      source_of_answer:'model', latency_ms:Math.round(latency)
+    });
+    SPINE.logProvenance(prov);
+    attachWhy(aiWrap, prov);
+  }catch(e){ console.warn('[spine] provenance failed (chat unaffected):', e); }
+}
+function attachWhy(aiWrap, prov){
+  if(!aiWrap || !prov) return;
+  const why=document.createElement('button');
+  why.type='button';
+  why.textContent='Why? · '+prov.tag;
+  why.setAttribute('aria-label','Why this answer (Glass Box trace)');
+  why.style.cssText='margin:6px 0 2px;font:inherit;font-size:11px;letter-spacing:.04em;background:transparent;border:0;color:var(--faint);cursor:pointer;padding:2px 0;opacity:.75';
+  why.onclick=function(){
+    const gb=SPINE.glassBox(prov);
+    console.log('[AUBS Glass Box]', gb, prov);
+    toast('tag: '+gb.tag+' · sent '+gb.sent_to_model.length+' · cited '+gb.used_in_answer.length+' · flags '+(gb.flags_active.length?gb.flags_active.join(','):'none'));
+  };
+  aiWrap.appendChild(why);
 }
 </script>
 <script>
