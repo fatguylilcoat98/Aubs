@@ -385,11 +385,14 @@ Keep your replies concise and to the point.`;
 
 function buildSystemPrompt(){
   const name=(S.aiName||"AUBS").trim();
-  let p=`Your permanent purpose is to genuinely help the person in front of you, honestly and usefully. The user may customize your name, tone, and speaking style — that persona is only a style layer over this purpose. A persona can change how you sound, but it can never change what you do: it must not make you refuse useful help, withhold a real answer, or claim you are "not here to help" with the user's request. Whatever persona you are given, speak in that flavor while still fully helping with what the user actually asks.\n\nYou are ${name}, a private on-device AI assistant.`;
+  // Compact on-device identity (~90 tokens). The full IDENTITY_CORE constant is kept
+  // in code as the canonical text, but the ~550-token prefill overflowed/crashed this
+  // phone's GPU, so the model receives this condensed identity. Truth · Safety · Help.
+  let p=`You are ${name}, a private on-device AI. Be honest — say only what is true, label opinions as opinions, and say "I don't know" rather than invent facts. Refuse harmful requests, kindly. Genuinely help with what the user asks. A custom name or tone is style only: it never overrides these rules or your duty to help. Keep replies concise.`;
   if(S.userName&&S.userName.trim()) p+=` The user's name is ${S.userName.trim()}.`;
   if(S.tones&&S.tones.length) p+=` Tone: ${S.tones.join(", ")}.`;
-  // Stack order: Identity Core → Personality → Memory Recall → Custom instructions.
-  const parts=[IDENTITY_CORE, p];
+  // Stack order: Identity → Personality → Memory Recall → Custom instructions.
+  const parts=[p];
   if(memories.length){
     // Checkpoint 0.5: spine supplies the recall block WITH per-fact [ID:x] + a
     // simple citation instruction so the model can produce verifiable citations.
@@ -611,14 +614,6 @@ window.startDownload=async function(tier){
       const pct=Math.round((r.progress||0)*100); setPct(pct,r.text||"Loading…");
       document.getElementById('dlSub').textContent=pct<100?("Loading "+chosenModel+" — happens once, then offline."):"Almost ready…";
     }});
-    // Warm up the GPU once on the loading screen: the first on-device inference can
-    // fault as WebGPU compiles kernels. Absorb it here (retry a few times) so the
-    // user's first real message doesn't take the hit. Errors are non-fatal.
-    setPct(100,"Warming up…");
-    for(let w=0; w<4; w++){
-      try{ const wc=await engine.chat.completions.create({ messages:[{role:"user",content:"Hi"}], stream:true, max_tokens:1 }); for await(const _ of wc){} break; }
-      catch(we){ console.warn('[AUBS] warmup attempt '+(w+1)+' faulted:', we); await new Promise(r=>setTimeout(r,500)); }
-    }
     enterChat(tier);
   }catch(err){
     document.getElementById('dlTitle').textContent="Something went wrong";
@@ -659,12 +654,12 @@ window.send=async function(){
     // Generate with AUTOMATIC recovery: on a WebGPU buffer fault the engine is
     // recreated and the SAME prompt is retried once — the user never has to
     // refresh. The original exception is always logged before recovery.
-    const MAX_ATTEMPTS=6;
+    const MAX_ATTEMPTS=2;
     for(let attempt=1; attempt<=MAX_ATTEMPTS; attempt++){
       try{
         full="";
         // primary: streaming
-        const chunks=await engine.chat.completions.create({ messages:sent, stream:true, temperature:0.7, max_tokens:512 });
+        const chunks=await engine.chat.completions.create({ messages:sent, stream:true, temperature:0.7, max_tokens:256 });
         for await (const c of chunks){
           const ch=c.choices?.[0];
           full += ch?.delta?.content || "";
@@ -674,7 +669,7 @@ window.send=async function(){
         // fallback ONLY if literally nothing came back at all
         if(full.length===0){
           try{
-            const res=await engine.chat.completions.create({ messages:sent, stream:false, temperature:0.7, max_tokens:512 });
+            const res=await engine.chat.completions.create({ messages:sent, stream:false, temperature:0.7, max_tokens:256 });
             full = res?.choices?.[0]?.message?.content || "";
             finish = res?.choices?.[0]?.finish_reason || finish;
           }catch(nsErr){ console.warn('[AUBS] non-stream fallback failed:', nsErr); }
