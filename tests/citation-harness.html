@@ -159,6 +159,15 @@ function withTimeout(promise, ms){
   ]);
 }
 
+// Same fault signature the app's send() recovers from (WebGPU instability on mobile).
+const GPU_FAULT = /GPUBuffer|mapAsync|unmapped|device is lost|has already been disposed/i;
+async function recoverEngine(model){
+  try{ if(H.engine && H.engine.unload) await H.engine.unload(); }catch(e){}
+  H.engine = null;
+  const appConfig = Object.assign({}, webllm.prebuiltAppConfig, { cacheBackend: "indexeddb" });
+  H.engine = await webllm.CreateMLCEngine(model, { appConfig, initProgressCallback:(p)=>status('Reloading engine: '+Math.round((p.progress||0)*100)+'%') });
+}
+
 async function runOne(scn, timeoutMs){
   const entries = SPINE.adaptMemories(scn.memory || []);
   const ids = entries.map(e=>e.id);
@@ -173,7 +182,7 @@ async function runOne(scn, timeoutMs){
     let full = "";
     const chunks = await H.engine.chat.completions.create({
       messages:[{role:'system',content:sys},{role:'user',content:scn.prompt}],
-      stream:true, temperature:0.2, max_tokens:220
+      stream:true, temperature:0.6, max_tokens:200
     });
     for await (const c of chunks){ full += (c.choices && c.choices[0] && c.choices[0].delta && c.choices[0].delta.content) || ""; }
     return full;
@@ -219,7 +228,7 @@ function buildReport(s){
   L.push("| # | Scenario | Prompt | Expected ID | IDs cited | Outcome | Tag | Answer |");
   L.push("|---|----------|--------|-------------|-----------|---------|-----|--------|");
   for(const r of H.results){
-    const ans = String(r.answer).replace(/\s*\n\s*/g, ' ').slice(0,300);
+    const ans = ((r.answer===''||r.answer==null) ? '(empty response)' : String(r.answer)).replace(/\s*\n\s*/g, ' ').slice(0,300);
     L.push("| "+r.id+" | "+r.name+" | "+r.prompt+" | "+r.expected+" | "+r.cited+" | "+r.outcome+" | "+r.tag+" | "+ans+" |");
   }
   L.push("");
@@ -253,19 +262,30 @@ window.runAll = async function(){
     }
     status('Running '+SCEN.length+' scenarios (timeout '+(timeoutMs/1000)+'s each)…');
     const tbody = document.querySelector('#results tbody'); tbody.innerHTML=''; H.results=[];
+    let recoveries = 0;
     for(const scn of SCEN){
       let row;
       try{ row = await runOne(scn, timeoutMs); }
       catch(e){
-        const isTimeout = /timeout/i.test(e.message);
-        row = { id:scn.id, name:scn.name, prompt:scn.prompt, expected:'', answer:(isTimeout?'(timed out)':'ERROR: '+e.message), cited:'(none)', outcome:(isTimeout?'timeout':'error'), tag:(isTimeout?'timeout':'error') };
+        const msg = e && e.message ? e.message : String(e);
+        const isTimeout = /timeout/i.test(msg);
+        row = { id:scn.id, name:scn.name, prompt:scn.prompt, expected:'', answer:(isTimeout?'(timed out)':'ERROR: '+msg), cited:'(none)', outcome:(isTimeout?'timeout':'error'), tag:(isTimeout?'timeout':'error') };
+        // Mirror the app: on a GPU buffer fault / disposed engine, reload the engine
+        // so the remaining scenarios don't cascade-fail.
+        if(!isTimeout && GPU_FAULT.test(msg) && recoveries < 5){
+          recoveries++;
+          status('GPU engine fault on '+scn.id+' — reloading the engine ('+recoveries+')…');
+          try{ await recoverEngine(model); }catch(re){ status('Engine reload failed: '+(re.message||re)); }
+        }
       }
       H.results.push(row);
+      const shownAnswer = (row.answer===''||row.answer==null) ? '(empty response)' : row.answer;
       const tr = document.createElement('tr');
       tr.innerHTML = '<td>'+row.id+'</td><td>'+esc(row.name)+'</td><td>'+esc(row.prompt)+'</td><td>'+esc(row.expected)+
-        '</td><td class="ans">'+esc(row.answer)+'</td><td>'+esc(row.cited)+'</td>'+
+        '</td><td class="ans">'+esc(shownAnswer)+'</td><td>'+esc(row.cited)+'</td>'+
         '<td class="out-'+row.outcome+'">'+row.outcome+'</td><td class="tag-'+row.tag+'">'+row.tag+'</td>';
       tbody.appendChild(tr);
+      await new Promise(r=>setTimeout(r, 200));   // let the GPU settle between scenarios
     }
     const s = summarize(model);
     H.report = buildReport(s);
