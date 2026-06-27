@@ -590,6 +590,16 @@ function enterChat(tier){ currentTier=tier; document.getElementById('chatModel')
 function show(id){ document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active')); document.getElementById(id).classList.add('active'); }
 window.grow=(t)=>{ t.style.height='auto'; t.style.height=Math.min(t.scrollHeight,120)+'px'; };
 window.keys=(e)=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); window.send(); } };
+/* Runtime recovery: recreate the engine after a WebGPU fault (mobile WebGPU can
+   leave the engine in a bad/disposed state). Recreating re-inits the GPU from the
+   cached model (no re-download). Returns true on success. */
+async function recoverEngine(){
+  try{ if(engine && engine.unload) await engine.unload(); }catch(e){}
+  try{
+    engine = await webllm.CreateMLCEngine(chosenModel, { initProgressCallback:()=>{} });
+    return true;
+  }catch(e){ console.error('[AUBS] engine recovery (reload) failed:', e); return false; }
+}
 window.send=async function(){
   const box=document.getElementById('box'); const text=box.value.trim();
   if(!text||!engine) return;
@@ -600,23 +610,47 @@ window.send=async function(){
   const aiWrap=document.createElement('div'); aiWrap.className='msg ai';
   aiWrap.innerHTML='<div class="who">'+S.aiName.toUpperCase()+'</div><div class="bubble"><span class="dots"><i></i><i></i><i></i></span></div>';
   thread.appendChild(aiWrap); const bubble=aiWrap.querySelector('.bubble'); thread.scrollTop=thread.scrollHeight; sendBtn.disabled=true;
-  let full=""; let finish="";
+  let full=""; let finish=""; let fatalErr=null;
   const t0=(window.performance&&performance.now)?performance.now():0;
   const sent=contextMessages();                  // exact messages sent to the model (logged in provenance)
+  const GPU_FAULT=/GPUBuffer|mapAsync|unmapped|device is lost|Device is lost|has already been disposed/i;
   try{
-    // primary: streaming
-    const chunks=await engine.chat.completions.create({ messages:sent, stream:true, temperature:0.7, max_tokens:512 });
-    for await (const c of chunks){
-      const ch=c.choices?.[0];
-      full += ch?.delta?.content || "";
-      if(ch?.finish_reason) finish=ch.finish_reason;
-      if(full){ bubble.textContent=full; thread.scrollTop=thread.scrollHeight; }
-    }
-    // fallback ONLY if literally nothing came back at all
-    if(full.length===0){
-      const res=await engine.chat.completions.create({ messages:sent, stream:false, temperature:0.7, max_tokens:512 });
-      full = res?.choices?.[0]?.message?.content || "";
-      finish = res?.choices?.[0]?.finish_reason || finish;
+    // Generate with AUTOMATIC recovery: on a WebGPU buffer fault the engine is
+    // recreated and the SAME prompt is retried once — the user never has to
+    // refresh. The original exception is always logged before recovery.
+    for(let attempt=1; attempt<=2; attempt++){
+      try{
+        full="";
+        // primary: streaming
+        const chunks=await engine.chat.completions.create({ messages:sent, stream:true, temperature:0.7, max_tokens:512 });
+        for await (const c of chunks){
+          const ch=c.choices?.[0];
+          full += ch?.delta?.content || "";
+          if(ch?.finish_reason) finish=ch.finish_reason;
+          if(full){ bubble.textContent=full; thread.scrollTop=thread.scrollHeight; }
+        }
+        // fallback ONLY if literally nothing came back at all
+        if(full.length===0){
+          try{
+            const res=await engine.chat.completions.create({ messages:sent, stream:false, temperature:0.7, max_tokens:512 });
+            full = res?.choices?.[0]?.message?.content || "";
+            finish = res?.choices?.[0]?.finish_reason || finish;
+          }catch(nsErr){ console.warn('[AUBS] non-stream fallback failed:', nsErr); }
+        }
+        fatalErr=null; break;                       // generation completed
+      }catch(genErr){
+        fatalErr=genErr;
+        const msg=(genErr&&genErr.message?genErr.message:String(genErr));
+        console.error('[AUBS] inference error (attempt '+attempt+'):', genErr);  // (log the REAL exception)
+        if(GPU_FAULT.test(msg) && attempt<2){
+          bubble.textContent="The on-device engine hiccupped — reloading and retrying…";
+          const ok=await recoverEngine();
+          if(!ok) break;                            // could not recover -> show the real error below
+          // else: loop and retry the same prompt automatically
+        }else{
+          break;                                    // non-GPU error, or out of retries
+        }
+      }
     }
     if(full.length>0){
       bubble.textContent=full;                       // keep whatever the model produced
@@ -624,22 +658,14 @@ window.send=async function(){
       saveHistory(history.slice(1));                 // persist turns (not the system prompt)
       captureMemories(text);                         // auto-extract durable facts from the user's message
       logProvenanceFor(text, full, sent, t0, aiWrap); // Checkpoint 0 spine: write provenance + Glass Box trace
+    }else if(fatalErr){
+      // Recovery impossible -> show the REAL error, never a generic "refresh" message.
+      const m=(fatalErr.message||String(fatalErr));
+      bubble.textContent = GPU_FAULT.test(m)
+        ? ("The on-device engine couldn't recover. Error: "+m+" — try reloading the page.")
+        : ("Error: "+m);
     }else{
       bubble.textContent="(No text came back. finish: "+(finish||"?")+" · model: "+(chosenModel||"?")+". Tap send again.)";
-    }
-  }catch(err){
-    const msg=(err&&err.message?err.message:String(err));
-    // WebGPU buffer fault: the GPU engine was interrupted mid-run. Reset it and recover.
-    if(/GPUBuffer|mapAsync|unmapped|device is lost|Device is lost/i.test(msg)){
-      bubble.textContent="The on-device engine hiccupped. Resetting it — give me a sec, then resend.";
-      try{ if(engine.resetChat) await engine.resetChat(); }catch(e){}
-      try{
-        if(typeof history!=='undefined' && history.length){ /* keep convo; reload engine */ }
-        if(engine.reload && chosenModel){ await engine.reload(chosenModel); }
-      }catch(e2){ bubble.textContent="The engine needs a quick reload — pull down to refresh the page, then continue."; }
-      if(bubble.textContent.indexOf("Resetting")===0) bubble.textContent="Ready again — go ahead and resend that.";
-    }else{
-      bubble.textContent="Error: "+msg; console.error(err);
     }
   }finally{
     window.__busy=false; sendBtn.disabled=false; document.getElementById('box').focus(); thread.scrollTop=thread.scrollHeight;
