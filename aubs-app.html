@@ -384,11 +384,15 @@ SAFETY
 Keep your replies concise and to the point.`;
 
 function buildSystemPrompt(){
-  const name=(S.aiName||"AUBS").trim();
-  // Compact on-device identity (~90 tokens). The full IDENTITY_CORE constant is kept
-  // in code as the canonical text, but the ~550-token prefill overflowed/crashed this
-  // phone's GPU, so the model receives this condensed identity. Truth · Safety · Help.
-  let p=`You are ${name}, a private on-device AI. Be honest — say only what is true, label opinions as opinions, and say "I don't know" rather than invent facts. Refuse harmful requests, kindly. Genuinely help with what the user asks. A custom name or tone is style only: it never overrides these rules or your duty to help. Keep replies concise.`;
+  const persona=(S.aiName||"AUBS").trim();
+  // Bug-2 fix: the immutable AUBS identity always leads and dominates; a custom
+  // name/tone is a persona STYLE only and can never replace AUBS as "who are you?".
+  // Wording lives in the spine (SPINE.identityPreamble, Article 12) so the app and
+  // tests stay in sync. Compact (~70 tokens base) — the ~550-token prefill crashed
+  // this phone's GPU. Fallback keeps AUBS dominant if the spine fails to load.
+  let p = (typeof SPINE!=="undefined" && SPINE && SPINE.identityPreamble)
+    ? SPINE.identityPreamble(persona)
+    : `You are AUBS, a private on-device AI. Your name is AUBS and that never changes. Be honest — say only what is true, label opinions as opinions, and say "I don't know" rather than invent facts. Refuse harmful requests, kindly. Genuinely help. Keep replies concise.${persona&&persona.toLowerCase()!=="aubs"?` A "${persona}" personality is a style costume only — if asked your name you are still AUBS.`:""}`;
   if(S.userName&&S.userName.trim()) p+=` The user's name is ${S.userName.trim()}.`;
   if(S.tones&&S.tones.length) p+=` Tone: ${S.tones.join(", ")}.`;
   // Stack order: Identity → Personality → Memory Recall → Custom instructions.
@@ -401,7 +405,7 @@ function buildSystemPrompt(){
     else { parts.push("These are personal facts about the user, saved from past conversations. When asked what you remember or know about the user, report only these facts — nothing else. Do not include your own name, role, capabilities, system identity, or instructions in your answer.\n"
       + memories.map(m=>"- "+m).join("\n")); }
   }
-  if(S.instructions&&S.instructions.trim()) parts.push(`Custom instructions: ${S.instructions.trim()}`);
+  if(S.instructions&&S.instructions.trim()) parts.push(`Persona flavor (style only — never your identity, your name, or the rules above): ${S.instructions.trim()}`);
   return parts.join("\n\n");
 }
 
@@ -503,7 +507,12 @@ function extractFacts(text){
 }
 function captureMemories(userText){
   let changed=false;
-  for(const f of extractFacts(userText)){
+  // Bug-1 fix: prefer the spine's centralized, unit-tested extractor (handles
+  // "im chris" / lowercase / mid-sentence). Falls back to the local one if the
+  // spine isn't loaded.
+  const facts = (typeof SPINE!=="undefined" && SPINE && SPINE.extractFacts)
+    ? SPINE.extractFacts(userText) : extractFacts(userText);
+  for(const f of facts){
     if(!f || f.length<5 || f.length>140) continue;
     const norm=f.toLowerCase();
     if(memories.some(x=>x.toLowerCase()===norm)) continue;   // dedup — never store the same fact twice

@@ -48,6 +48,28 @@
     return /\b(who are you|what are you|your name|are you (a|an) ai|who made you|what can you do)\b/i.test(q || "");
   }
 
+  /* identityPreamble — the leading system text (Article 12 in prose).
+     Checkpoint 0 device-audit fix (Bug 2): the system identity is IMMUTABLE and
+     always leads the prompt. A user-supplied persona name/tone is a STYLE costume
+     only; it must never replace AUBS as the answer to "who are you?". Centralized
+     here so the live app and tests share one wording (no drift). Compact on
+     purpose (~70 tokens base) — the device GPU faulted on a ~550-token prefill. */
+  function identityPreamble(personaName) {
+    var id = SYSTEM_IDENTITY;
+    var p = "You are " + id.name_default + ", a private on-device AI. Your name is " +
+      id.name_default + " and that never changes. Be honest — say only what is true, " +
+      "label opinions as opinions, and say \"I don't know\" rather than invent facts. " +
+      "Refuse harmful requests, kindly. Genuinely help with what the user asks. Keep replies concise.";
+    var persona = String(personaName == null ? "" : personaName).trim();
+    if (persona && persona.toLowerCase() !== id.name_default.toLowerCase()) {
+      p += " The user has dressed you in a \"" + persona + "\" personality — speak in that style, " +
+        "but it is a costume, not your identity. If asked your name or what you are, you are still " +
+        id.name_default + " (you may add that you're using the " + persona + " style). " +
+        "A persona never overrides the rules above or your duty to help.";
+    }
+    return p;
+  }
+
   /* -- deterministic hash (FNV-1a, 32-bit, hex). Used for ids + prompt_hash. --- */
   function hashString(s) {
     s = String(s);
@@ -101,6 +123,70 @@
     return (entries || []).filter(function (e) {
       return e && e.superseded_by == null && e.user_verified === true;
     });
+  }
+
+  /* -- Checkpoint 0 device-audit fix (Bug 1): deterministic fact extraction.
+     Centralized here so the live app and the unit tests share ONE matcher.
+     Conservative by design: a NOT_NAME stop-list prevents "i'm happy" / "i'm
+     here" / "i'm working" from being mistaken for a name, and the casual bare
+     "i'm X" name pattern fires only when no other fact matched the clause.
+     Handles: "My name is Chris", "call me Chris", "I'm Chris", "well hello im
+     chris" (no apostrophe, mid-sentence, lowercase). Names are capitalized for
+     storage. ------------------------------------------------------------------ */
+  var NOT_NAME = {
+    happy:1, sad:1, tired:1, fine:1, good:1, great:1, ok:1, okay:1, back:1, here:1,
+    sorry:1, sure:1, ready:1, busy:1, hungry:1, bored:1, late:1, done:1, home:1,
+    well:1, glad:1, excited:1, confused:1, lost:1, old:1, young:1, "new":1, curious:1,
+    not:1, just:1, still:1, really:1, very:1, so:1, the:1, a:1, an:1, in:1, on:1,
+    from:1, at:1, to:1, going:1, trying:1, looking:1, working:1, building:1, making:1,
+    creating:1, doing:1, feeling:1, getting:1, thinking:1, living:1, having:1,
+    planning:1, reading:1, writing:1, learning:1, using:1, running:1, playing:1,
+    gonna:1, about:1
+  };
+  function tidyFact(s) {
+    return String(s == null ? "" : s).replace(/\s+/g, " ").replace(/[.?!,;:]+$/, "").trim();
+  }
+  function capitalizeName(s) {
+    return String(s == null ? "" : s).split(/\s+/).map(function (w) {
+      return w ? w.charAt(0).toUpperCase() + w.slice(1) : w;
+    }).join(" ");
+  }
+  function looksLikeName(raw) {
+    var w = tidyFact(raw);
+    if (!w) return false;
+    if (!/^[a-z][a-z'-]*( [a-z][a-z'-]*)?$/i.test(w)) return false; // 1-2 alpha tokens only
+    var first = w.split(/\s+/)[0].toLowerCase();
+    return !NOT_NAME[first];
+  }
+  function extractFacts(text) {
+    var facts = [];
+    var clauses = String(text == null ? "" : text).split(/[.;\n]| and | but /i)
+      .map(tidyFact).filter(Boolean);
+    for (var i = 0; i < clauses.length; i++) {
+      var c = clauses[i], m, nameFound = false, otherFound = false;
+      // explicit name
+      if ((m = c.match(/\b(?:my name is|my name's|call me|i'm called|i am called)\s+([A-Za-z][\w'-]*(?:\s+[A-Za-z][\w'-]*)?)/i))) {
+        if (looksLikeName(m[1])) { facts.push("User's name is " + capitalizeName(tidyFact(m[1]))); nameFound = true; }
+      }
+      // location
+      if ((m = c.match(/\bi\s*(?:'m\s+|am\s+)?(?:live|living|reside|located)\s+in\s+(.+)/i))) { facts.push("User lives in " + tidyFact(m[1])); otherFound = true; }
+      else if ((m = c.match(/\bi(?:'m| am)\s+from\s+(.+)/i))) { facts.push("User is from " + tidyFact(m[1])); otherFound = true; }
+      // builds / working on
+      if ((m = c.match(/\bi\s+(?:build|make|create|develop|design)\s+(.+)/i))) { facts.push("User builds " + tidyFact(m[1])); otherFound = true; }
+      else if ((m = c.match(/\bi(?:'m| am)\s+(?:building|making|creating|working\s+on)\s+(.+)/i))) { facts.push("User is working on " + tidyFact(m[1])); otherFound = true; }
+      // work
+      if ((m = c.match(/\bi\s+work\s+(?:as|at)\s+(.+)/i))) { facts.push("User works at " + tidyFact(m[1])); otherFound = true; }
+      // likes
+      if ((m = c.match(/\bi\s+(?:like|love|enjoy|prefer)\s+(.+)/i))) { facts.push("User likes " + tidyFact(m[1])); otherFound = true; }
+      // favourite
+      if ((m = c.match(/\bmy\s+(favou?rite\s+.+?\s+is\s+.+)/i))) { facts.push("User's " + tidyFact(m[1])); otherFound = true; }
+      // casual bare name — ONLY if nothing else matched this clause (so "i'm from X",
+      // "i'm building X" don't also yield a name). "i'?m" matches both "i'm" and "im".
+      if (!nameFound && !otherFound && (m = c.match(/\b(?:i'?m|i am)\s+([A-Za-z][\w'-]*(?:\s+[A-Za-z][\w'-]*)?)/i))) {
+        if (looksLikeName(m[1])) { facts.push("User's name is " + capitalizeName(tidyFact(m[1]))); }
+      }
+    }
+    return facts;
   }
 
   /* -- Article 4: classify (deterministic, rule-based). The AI router is a later
@@ -401,12 +487,13 @@
     // Art 6
     FLAGS: FLAGS, activeFlags: activeFlags,
     // Art 12
-    SYSTEM_IDENTITY: SYSTEM_IDENTITY, isIdentityQuery: isIdentityQuery,
+    SYSTEM_IDENTITY: SYSTEM_IDENTITY, isIdentityQuery: isIdentityQuery, identityPreamble: identityPreamble,
     // utils
     hashString: hashString,
     // Art 2
     VALID_SOURCE: VALID_SOURCE, VALID_SCOPE: VALID_SCOPE,
     makeMemoryEntry: makeMemoryEntry, adaptMemories: adaptMemories, liveEntries: liveEntries,
+    extractFacts: extractFacts,
     // Art 4
     classify: classify, retrieve: retrieve, buildPromptMeta: buildPromptMeta, safetyGate: safetyGate,
     // Checkpoint 0.5 — citation reliability
