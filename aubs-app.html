@@ -415,7 +415,12 @@ function buildSystemPrompt(){
    Lean and synchronous — no pipeline, no async hooks.
    ───────────────────────────────────────────────────────────── */
 const MEM_MAX=60;     // cap on stored facts
-const CTX_MSGS=24;    // recent turns sent to the model (the UI keeps everything)
+// Recent turns sent to the model. The UI and storage keep the FULL thread; this only
+// bounds the model's working context. Kept small on purpose: prefill = system prompt +
+// these turns, and prefill drives the on-device GPU buffer. On a binding-capped phone
+// (Adreno, 128MB) a long context pushed prefill past the fault threshold and the engine
+// dropped to "Model not loaded" mid-chat. 6 (≈3 exchanges) keeps prefill well under it.
+const CTX_MSGS=6;
 function loadHistory(){ try{ const a=JSON.parse(localStorage.getItem("aubs_history")||"[]"); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
 function loadMemories(){ try{ const a=JSON.parse(localStorage.getItem("aubs_memories")||"[]"); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
 function saveHistory(turns){ try{ localStorage.setItem("aubs_history", JSON.stringify(turns)); checkQuota(); }catch(e){ toast("Storage full — older messages may not be saved."); } }

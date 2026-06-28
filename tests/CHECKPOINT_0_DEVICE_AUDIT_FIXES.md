@@ -79,6 +79,28 @@ subordinates the persona; **no page errors**.
    style); it must **not** invent "Rock" or claim to *be* Jack Black.
 5. Confirm replies still stream and **Why?** still renders.
 
+## Runtime stability follow-up (device crash, same audit)
+
+Device testing of the Bug-2 fix surfaced a crash on longer chats: after a few turns the
+model returned empty (`finish: length`) and the next call failed with **"Model not loaded …
+maxBind:128MB · TIGHT"**. This is not a behavior bug — it's the phone's Adreno GPU hitting
+its **128 MB buffer binding cap**. Prefill (system prompt + sent history) drives that buffer,
+and the app was sending up to **24 prior turns**, so by ~turn 5 the accumulated context
+pushed prefill past the fault threshold; once the GPU faulted mid-generation the engine
+dropped to "Model not loaded" with no auto-recovery for that error.
+
+Two prefill-shrinking changes (no new layers, no engine-recreate — that path previously
+caused the half-loaded state):
+- **Compacted `identityPreamble`** (~half the persona text) — keeps AUBS dominance, fewer
+  tokens paid every turn. The Bug-2 enlargement is what nudged the ceiling closer.
+- **`CTX_MSGS` 24 → 6** — the model's working context is capped at ~3 exchanges. The **full
+  thread and all memories are still kept** in the UI/storage; only what's sent to the model
+  shrinks, keeping prefill well under the fault threshold.
+
+Estimated worst-case prefill for the Jack-Black persona case drops from ~520 tokens (at the
+~550 fault zone) to ~420. Device retest: hold a 6+ turn conversation and confirm no "Model
+not loaded" / empty-reply crash.
+
 ## Scope honored
 
 Changed: `spine/spine.js` (added `extractFacts` + helpers, `identityPreamble`; exported

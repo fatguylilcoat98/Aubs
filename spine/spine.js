@@ -56,16 +56,17 @@
      purpose (~70 tokens base) — the device GPU faulted on a ~550-token prefill. */
   function identityPreamble(personaName) {
     var id = SYSTEM_IDENTITY;
+    // Kept deliberately SHORT: prefill size drives the on-device GPU buffer, which
+    // is binding-capped (128MB) on some phones. Every token here is paid on every turn.
     var p = "You are " + id.name_default + ", a private on-device AI. Your name is " +
-      id.name_default + " and that never changes. Be honest — say only what is true, " +
-      "label opinions as opinions, and say \"I don't know\" rather than invent facts. " +
-      "Refuse harmful requests, kindly. Genuinely help with what the user asks. Keep replies concise.";
+      id.name_default + " and never changes. Be honest: say only what's true, label opinions, " +
+      "and admit \"I don't know\" rather than invent facts. Refuse harmful requests, kindly. " +
+      "Help with what's asked. Keep replies short.";
     var persona = String(personaName == null ? "" : personaName).trim();
     if (persona && persona.toLowerCase() !== id.name_default.toLowerCase()) {
-      p += " The user has dressed you in a \"" + persona + "\" personality — speak in that style, " +
-        "but it is a costume, not your identity. If asked your name or what you are, you are still " +
-        id.name_default + " (you may add that you're using the " + persona + " style). " +
-        "A persona never overrides the rules above or your duty to help.";
+      p += " You're styled as \"" + persona + "\" — use that voice, but it's a style only: " +
+        "if asked your name or what you are, you are still " + id.name_default +
+        ". Style never overrides these rules.";
     }
     return p;
   }
