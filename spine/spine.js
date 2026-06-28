@@ -35,7 +35,8 @@
     FLAG_SKILLS: false,
     // Control flags (Article 6), default OFF. Dogfood/diagnostic only.
     FLAG_TRACE_VERBOSE: false,           // expose the full per-turn trace in the app
-    FLAG_SPINE_VERIFIED_GROUNDING: false // CANDIDATE Article 3a amendment (see verifyGrounding)
+    FLAG_SPINE_VERIFIED_GROUNDING: false,// CANDIDATE Article 3a amendment (see verifyGrounding)
+    FLAG_LEDGER: false                   // Milestone 0: write tamper-evident DecisionRecords (spine/ledger.js)
   };
   function activeFlags() {
     return Object.keys(FLAGS).filter(function (k) { return FLAGS[k] === true; });

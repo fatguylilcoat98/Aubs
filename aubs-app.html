@@ -284,6 +284,10 @@ body{background:var(--bgbase);color:var(--ink);font-family:var(--font-body);
     </div>
     <div class="hint">AUBS quietly remembers facts you share and keeps your past chats — saved privately on your device. Clearing can't be undone.</div>
     <div class="hint" style="opacity:.6;font-size:11px">Build <span id="buildTag">—</span></div>
+    <div id="ledgerRow" style="display:none;margin-top:8px">
+      <div class="hint" id="ledgerStatus" style="font-size:11px">Provenance ledger: <span id="ledgerCount">…</span></div>
+      <div class="btn-row"><button class="act" onclick="verifyLedgerUI()">Verify integrity</button></div>
+    </div>
   </div>
 
   <div class="section">
@@ -333,6 +337,8 @@ body{background:var(--bgbase);color:var(--ink);font-family:var(--font-body);
 
 <!-- AUBS Spine (Checkpoint 0) — deterministic truth core, loaded before the app module -->
 <script src="spine/spine.js"></script>
+<!-- AUBS Ledger (Milestone 0) — tamper-evident provenance; inert unless FLAG_LEDGER is on -->
+<script src="spine/ledger.js"></script>
 <script type="module">
 import * as webllm from "https://esm.run/@mlc-ai/web-llm@0.2.84";
 const SPINE = (typeof window!=="undefined" && window.AUBS_SPINE) ? window.AUBS_SPINE : null;
@@ -348,7 +354,56 @@ if(SPINE && SPINE.FLAGS){
     // Default OFF; enable per-session with ?router=1 (or aubs_router=1) while validating.
     if(qp.get('router')==='1'||localStorage.getItem('aubs_router')==='1') SPINE.FLAGS.FLAG_ROUTER=true;
     if(qp.get('router')==='0') SPINE.FLAGS.FLAG_ROUTER=false;
+    // Milestone 0: tamper-evident ledger. OFF by default → zero change to AUBS behavior.
+    if(qp.get('ledger')==='1'||localStorage.getItem('aubs_ledger')==='1') SPINE.FLAGS.FLAG_LEDGER=true;
   }catch(e){}
+}
+
+/* ── Milestone 0 — Ledger wiring (additive, behind FLAG_LEDGER) ──────────────────
+   When ON, every provenance record is ALSO appended to a real append-only, hash-chained,
+   Ed25519-signed IndexedDB ledger. When OFF, none of this runs. A device key is generated
+   once and persisted (non-extractable private). Append is fire-and-forget and wrapped so it
+   can NEVER affect the chat loop. Offline verification: window.aubsLedger.verify(). */
+const LEDGER = (typeof window!=="undefined" && window.AUBS_LEDGER) ? window.AUBS_LEDGER : null;
+function ledgerOn(){ return !!(SPINE&&SPINE.FLAGS&&SPINE.FLAGS.FLAG_LEDGER&&LEDGER&&typeof indexedDB!=="undefined"); }
+let _ledgerCtx=null, _ledgerInit=null;
+function _keyDB(){ return new Promise((res,rej)=>{ const r=indexedDB.open("aubs_ledger_keys",1); r.onupgradeneeded=()=>{ const db=r.result; if(!db.objectStoreNames.contains("meta")) db.createObjectStore("meta"); }; r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
+async function _loadOrCreateKey(){
+  const db=await _keyDB();
+  const existing=await new Promise((res)=>{ try{ const tx=db.transaction("meta","readonly"); const rq=tx.objectStore("meta").get("signing_key"); rq.onsuccess=()=>res(rq.result||null); rq.onerror=()=>res(null); }catch(e){ res(null); } });
+  if(existing && existing.privateKey) return existing;
+  let keys; try{ keys=await LEDGER.generateSigningKeyPair(); }catch(e){ keys={privateKey:null,publicKey:null}; }   // Ed25519 unsupported → unsigned hash-chain
+  await new Promise((res)=>{ try{ const tx=db.transaction("meta","readwrite"); tx.objectStore("meta").put(keys,"signing_key"); tx.oncomplete=()=>res(); tx.onerror=()=>res(); }catch(e){ res(); } });
+  return keys;
+}
+async function ensureLedger(){
+  if(!ledgerOn()) return null;
+  if(_ledgerCtx) return _ledgerCtx;
+  if(!_ledgerInit) _ledgerInit=(async()=>{ const store=LEDGER.createIndexedDBStore("aubs_ledger","records"); const keys=await _loadOrCreateKey(); _ledgerCtx={store,keys}; return _ledgerCtx; })().catch(e=>{ console.warn('[ledger] init failed (chat unaffected):',e); return null; });
+  return _ledgerInit;
+}
+// Offline verifier — no server, no cloud. Returns {ok,count,issues,fatal}.
+window.aubsLedger={
+  on: ledgerOn,
+  async verify(){ const c=await ensureLedger(); if(!c) return {ok:false,error:"ledger disabled"}; const recs=await c.store.all(); return LEDGER.verifyLedger(recs,c.keys.publicKey); },
+  async export(){ const c=await ensureLedger(); if(!c) return null; return LEDGER.exportLedger(c.store,c.keys.publicKey); },
+  async count(){ const c=await ensureLedger(); if(!c) return 0; return c.store.count(); },
+  async records(){ const c=await ensureLedger(); if(!c) return []; return c.store.all(); }
+};
+window.verifyLedgerUI=async function(){
+  toast("Verifying ledger…");
+  try{
+    const r=await window.aubsLedger.verify();
+    if(r&&r.error){ toast("Ledger: "+r.error); return; }
+    console.log("[AUBS Ledger verify]", r);
+    toast(r.ok ? ("✓ Ledger intact — "+r.count+" record"+(r.count===1?"":"s")+" verified offline")
+               : ("✗ TAMPERING DETECTED — "+r.fatal+" fatal issue(s). See console."));
+  }catch(e){ toast("Verify failed: "+(e&&e.message?e.message:e)); }
+};
+async function refreshLedgerRow(){
+  if(!ledgerOn()) return;
+  const row=document.getElementById('ledgerRow'); if(row) row.style.display='block';
+  try{ const n=await window.aubsLedger.count(); const el=document.getElementById('ledgerCount'); if(el) el.textContent=n+" record"+(n===1?"":"s")+" · signed, hash-chained"; }catch(e){}
 }
 
 const DEFAULTS = { aiName:"AUBS", userName:"", tones:[], instructions:"", theme:"midnight", c1:"#4FD4FF", c2:"#9B4DFF", bg:"" };
@@ -468,6 +523,7 @@ window.openDrawer=function(){
   document.querySelectorAll('#swatches .swatch').forEach(sw=>sw.classList.toggle('on', sw.dataset.c1===S.c1 && sw.dataset.c2===S.c2));
   document.getElementById('c1').value=S.c1; document.getElementById('c2').value=S.c2;
   updateMemCount();
+  if(typeof refreshLedgerRow==="function") refreshLedgerRow();   // shows the ledger row only when FLAG_LEDGER is on
   document.getElementById('drawer').classList.add('show');
   document.getElementById('drawerOverlay').classList.add('show');
 };
@@ -590,7 +646,7 @@ applyAppearance();
 
 // Build marker — lets us confirm on-device exactly which code is live (the service
 // worker can otherwise serve a stale spine.js / HTML). Bump this with each shipped change.
-const BUILD="cp0-router-2 · safety-gate-hardened";
+const BUILD="cp0-ledger-m0 · provenance-spine";
 console.log("[AUBS] build:", BUILD, "· spine:", (typeof SPINE!=="undefined"&&SPINE)?SPINE.SPINE_VERSION:"NOT LOADED");
 (function(){ const el=document.getElementById('buildTag'); if(el) el.textContent=BUILD+(typeof SPINE!=="undefined"&&SPINE?(" · spine "+SPINE.SPINE_VERSION):" · spine MISSING"); })();
 
@@ -844,6 +900,21 @@ function logProvenanceFor(query, answer, sentMsgs, t0, aiWrap, routed){
     });
     SPINE.logProvenance(prov);
     attachWhy(aiWrap, prov);
+    // Milestone 0: ALSO append a tamper-evident DecisionRecord (behind FLAG_LEDGER).
+    // Fire-and-forget + wrapped: a ledger failure can never affect the chat.
+    if(ledgerOn()){
+      ensureLedger().then(c=>{ if(!c||!LEDGER) return;
+        return LEDGER.appendRecord(c.store, {
+          input:query, output:answer, intent_id:prov.query_id,
+          model_id:chosenModel||"unknown",
+          provider:(source==='model'?'local':source),
+          execution_type:source,                              // model | rule | template
+          memory_refs:cited, retrieved_doc_refs:[],
+          explanation:{ tag, grounding_source:groundingSource, flags:prov.flags_active },
+          policy_version:SPINE.SPINE_VERSION
+        }, c.keys&&c.keys.privateKey);
+      }).catch(e=>console.warn('[ledger] append failed (chat unaffected):',e));
+    }
     // FLAG_TRACE_VERBOSE (dogfood): expose the full per-turn trace for diagnosis.
     if(SPINE.FLAGS && SPINE.FLAGS.FLAG_TRACE_VERBOSE){
       const trace={
