@@ -596,20 +596,21 @@ applyAppearance();
 
 // Build marker — lets us confirm on-device exactly which code is live (the service
 // worker can otherwise serve a stale spine.js / HTML). Bump this with each shipped change.
-const BUILD="cp0-devaudit-10 · SmolLM2-360M";
+const BUILD="cp0-devaudit-11 · SmolLM2-1.7B";
 console.log("[AUBS] build:", BUILD, "· spine:", (typeof SPINE!=="undefined"&&SPINE)?SPINE.SPINE_VERSION:"NOT LOADED");
 (function(){ const el=document.getElementById('buildTag'); if(el) el.textContent=BUILD+(typeof SPINE!=="undefined"&&SPINE?(" · spine "+SPINE.SPINE_VERSION):" · spine MISSING"); })();
 
-// Track A (lever 3): default Fast to the SMALLEST capable model. SmolLM2-360M has a
-// ~49k vocab, so its embedding/output buffer (~90MB) fits UNDER the Adreno 128MB binding
-// cap — where Llama-3.2-1B's 128k-vocab buffer (~520MB) overflows and triggers the
-// mapAsync fault. Architecture-first: stability over model smarts. Larger models remain
-// as fallbacks (resolve() picks the first id actually present in this WebLLM build).
+// Track A (lever 3, tuned): the mapAsync fault is driven by VOCAB size, not params —
+// the lm_head/embedding is the buffer that overflows the Adreno 128MB binding cap.
+// Llama-3.2-1B (128k vocab) = ~125MB → overflow → fault. SmolLM2's 49k vocab keeps that
+// buffer small, so we pick the LARGEST small-vocab model that still fits: SmolLM2-1.7B
+// (lm_head ~48MB, far smarter than the crash-free-but-babbling 360M). 360M stays as the
+// safe floor; Llama-1B last. resolve() picks the first id present in this WebLLM build.
 const MODELS={
-  fast:{ f16:["SmolLM2-360M-Instruct-q4f16_1-MLC","Qwen2.5-0.5B-Instruct-q4f16_1-MLC","Llama-3.2-1B-Instruct-q4f16_1-MLC"],
-         f32:["SmolLM2-360M-Instruct-q4f32_1-MLC","Qwen2.5-0.5B-Instruct-q4f32_1-MLC","Llama-3.2-1B-Instruct-q4f32_1-MLC"] },
-  smart:{ f16:["Llama-3.2-1B-Instruct-q4f16_1-MLC","Qwen2.5-1.5B-Instruct-q4f16_1-MLC","Llama-3.2-3B-Instruct-q4f16_1-MLC"],
-          f32:["Llama-3.2-1B-Instruct-q4f32_1-MLC","Qwen2.5-1.5B-Instruct-q4f32_1-MLC","Llama-3.2-3B-Instruct-q4f32_1-MLC"] }
+  fast:{ f16:["SmolLM2-1.7B-Instruct-q4f16_1-MLC","SmolLM2-360M-Instruct-q4f16_1-MLC","Llama-3.2-1B-Instruct-q4f16_1-MLC"],
+         f32:["SmolLM2-1.7B-Instruct-q4f32_1-MLC","SmolLM2-360M-Instruct-q4f32_1-MLC","Llama-3.2-1B-Instruct-q4f32_1-MLC"] },
+  smart:{ f16:["SmolLM2-1.7B-Instruct-q4f16_1-MLC","Qwen2.5-1.5B-Instruct-q4f16_1-MLC","Llama-3.2-3B-Instruct-q4f16_1-MLC"],
+          f32:["SmolLM2-1.7B-Instruct-q4f32_1-MLC","Qwen2.5-1.5B-Instruct-q4f32_1-MLC","Llama-3.2-3B-Instruct-q4f32_1-MLC"] }
 };
 // Small-vocabulary models — their embedding/output buffers stay well under a tight
 // mobile GPU binding limit (Adreno ~128MB). Large-vocab models (Llama-3.2 128k,
