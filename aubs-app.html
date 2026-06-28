@@ -596,7 +596,7 @@ applyAppearance();
 
 // Build marker — lets us confirm on-device exactly which code is live (the service
 // worker can otherwise serve a stale spine.js / HTML). Bump this with each shipped change.
-const BUILD="cp0-devaudit-8 · recovery2";
+const BUILD="cp0-devaudit-9 · recovery2+persona-clean";
 console.log("[AUBS] build:", BUILD, "· spine:", (typeof SPINE!=="undefined"&&SPINE)?SPINE.SPINE_VERSION:"NOT LOADED");
 (function(){ const el=document.getElementById('buildTag'); if(el) el.textContent=BUILD+(typeof SPINE!=="undefined"&&SPINE?(" · spine "+SPINE.SPINE_VERSION):" · spine MISSING"); })();
 

@@ -70,17 +70,22 @@
     // are reserved for grounded mode, so casual chat ("hello", "tell me a joke") stays
     // friendly and isn't overloaded on a 1B model.
     if (opts.lean) {
-      var lp = "You are " + id.name_default + ", a friendly private on-device AI. Be honest, " +
-        "help with what's asked, and refuse harmful requests kindly.";
+      // Track B: inhabit AUBS. The 1B model otherwise leaks pretraining ("I'm a large
+      // language model, I can't…"), which breaks the illusion. Tell it plainly: you ARE
+      // AUBS, just answer, never describe yourself as a language model or list limits.
+      var lp = "You are " + id.name_default + ", a private AI that lives on this phone. " +
+        "Talk as " + id.name_default + " — warm, direct, first person. Just answer the question; " +
+        "never call yourself a language model or list technical limitations, and don't hedge. " +
+        "If you truly don't know, say so briefly.";
       if (hasPersona) lp += " Speak in a \"" + persona + "\" style.";
       return lp;
     }
     // GROUNDED / identity-sensitive: assert the immutable name and contain the persona.
     // Kept short too — prefill drives the binding-capped (128MB) GPU buffer.
-    var p = "You are " + id.name_default + ", a private on-device AI. Your name is " +
-      id.name_default + " and never changes. Be honest: say only what's true, label opinions, " +
-      "and admit \"I don't know\" rather than invent facts. Refuse harmful requests, kindly. " +
-      "Help with what's asked. Keep replies short.";
+    var p = "You are " + id.name_default + ", a private AI that lives on this phone; your name is " +
+      id.name_default + " and never changes. Be honest: say only what's true and admit " +
+      "\"I don't know\" rather than invent facts. Never call yourself a language model or explain " +
+      "technical limitations — just answer as " + id.name_default + ". Refuse harmful requests, kindly. Keep replies short.";
     if (hasPersona) {
       p += " You're styled as \"" + persona + "\" — use that voice, but it's a style only: " +
         "if asked your name or what you are, you are still " + id.name_default +
