@@ -54,16 +54,28 @@
      only; it must never replace AUBS as the answer to "who are you?". Centralized
      here so the live app and tests share one wording (no drift). Compact on
      purpose (~70 tokens base) — the device GPU faulted on a ~550-token prefill. */
-  function identityPreamble(personaName) {
+  function identityPreamble(personaName, opts) {
+    opts = opts || {};
     var id = SYSTEM_IDENTITY;
-    // Kept deliberately SHORT: prefill size drives the on-device GPU buffer, which
-    // is binding-capped (128MB) on some phones. Every token here is paid on every turn.
+    var persona = String(personaName == null ? "" : personaName).trim();
+    var hasPersona = persona && persona.toLowerCase() !== id.name_default.toLowerCase();
+    // LEAN (B-minimal default for normal chat): one short identity line + a light style
+    // cue. No "name never changes" defense and no "never overrides" governance — those
+    // are reserved for grounded mode, so casual chat ("hello", "tell me a joke") stays
+    // friendly and isn't overloaded on a 1B model.
+    if (opts.lean) {
+      var lp = "You are " + id.name_default + ", a friendly private on-device AI. Be honest, " +
+        "help with what's asked, and refuse harmful requests kindly.";
+      if (hasPersona) lp += " Speak in a \"" + persona + "\" style.";
+      return lp;
+    }
+    // GROUNDED / identity-sensitive: assert the immutable name and contain the persona.
+    // Kept short too — prefill drives the binding-capped (128MB) GPU buffer.
     var p = "You are " + id.name_default + ", a private on-device AI. Your name is " +
       id.name_default + " and never changes. Be honest: say only what's true, label opinions, " +
       "and admit \"I don't know\" rather than invent facts. Refuse harmful requests, kindly. " +
       "Help with what's asked. Keep replies short.";
-    var persona = String(personaName == null ? "" : personaName).trim();
-    if (persona && persona.toLowerCase() !== id.name_default.toLowerCase()) {
+    if (hasPersona) {
       p += " You're styled as \"" + persona + "\" — use that voice, but it's a style only: " +
         "if asked your name or what you are, you are still " + id.name_default +
         ". Style never overrides these rules.";

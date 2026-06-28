@@ -136,6 +136,43 @@ small model — needs device confirmation with an actual **question**.
 **Device retest:** type `well hello im chris` → send → wait for reply, then ask **"what's my
 name?"** (a question). Expect "Chris". Statements like "im chris" are not recall prompts.
 
+## B-minimal prompt split + engine recovery (device UX/runtime recovery)
+
+Device testing showed normal chat felt over-governed (stilted 1B output) and the engine
+hit "Model not loaded" by turn 3. Two changes, no new layers:
+
+**B-minimal — lean-by-default, grounded-on-demand.** The system prompt is now built
+**per turn** in `send()` based on the query:
+- **Lean (default — normal chat):** `SPINE.identityPreamble(persona, {lean:true})` (one short
+  identity line + a light "speak in X style" cue) + plain memory facts (`A few things you
+  know about the user: …`). **No citation instruction, no recall governance.**
+- **Grounded (identity / personal / provenance questions):** full identity preamble (immutable
+  name + persona containment) + `memoryRecallBlock` (`[ID:x]` + citation instruction), so
+  verifiable grounding and "Why?" still work.
+- The switch is `needsGrounding(text)` — `SPINE.classify` is `identity`/`personal`, or a
+  provenance trigger ("why did you…", "how do you know", "what do you remember"). Examples:
+  "Hello" / "tell me a joke" → lean; "what's my name?" / "who are you?" / "why did you say
+  that?" → grounded.
+
+**Engine recovery.** `recoverEngine()` was defined but never called, and "Model not loaded"
+wasn't treated as recoverable. Now the retry loop matches a broader `RECOVERABLE` set
+(`GPUBuffer|mapAsync|unmapped|device is lost|disposed|not loaded|reload(`), and on such a
+fault it recreates the engine from the **cached** model (no re-download), waits, and retries
+the **same** prompt **once**. A `recovered` one-shot guard prevents any retry loop; a real
+error is shown only if recovery itself fails. (The earlier build recreated mid-fault and
+raced; this recovers only when the engine is already dead and awaits a full reload.)
+
+**Verification (headless, real app):** 9/9 — "Hello"/"joke"/intro route lean; intro still
+stores the memory; "what's my name?" routes grounded with `[ID:]` + the fact; "what's your
+name?" stays AUBS with the persona active; "why did you say that?" routes grounded; a forced
+"Model not loaded" self-heals (engine recreated once, user still gets the reply, no error
+shown). Golden 16/16, citation 28/28, relevance 9/9, extraction 18/18 unchanged.
+
+**Device retest:** Settings → Build must read `cp0-devaudit-5 · lean-chat+recovery`. Then:
+"Hello" feels friendly; hold 6+ turns (no "Model not loaded"); `well hello im chris` →
+Settings shows the memory; ask **"what's my name?"** → Chris; ask **"what's your name?"** →
+AUBS (persona styling OK); "Why?" still renders.
+
 ## Scope honored
 
 Changed: `spine/spine.js` (added `extractFacts` + helpers, `identityPreamble`; exported

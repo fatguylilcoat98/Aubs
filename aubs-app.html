@@ -384,30 +384,50 @@ SAFETY
 
 Keep your replies concise and to the point.`;
 
-function buildSystemPrompt(){
+/* B-minimal (Checkpoint 0 device audit): normal chat is LEAN — compact identity +
+   light persona + plain memory facts, NO citation mechanics. The full recall/citation
+   block (verifiable [ID:x] grounding) is added ONLY for grounded turns — identity,
+   personal, memory, or provenance questions — decided per-turn in send(). This keeps a
+   1B model un-overloaded for casual chat while preserving Glass Box where it matters. */
+function buildSystemPrompt(grounded){
   const persona=(S.aiName||"AUBS").trim();
-  // Bug-2 fix: the immutable AUBS identity always leads and dominates; a custom
-  // name/tone is a persona STYLE only and can never replace AUBS as "who are you?".
-  // Wording lives in the spine (SPINE.identityPreamble, Article 12) so the app and
-  // tests stay in sync. Compact (~70 tokens base) — the ~550-token prefill crashed
-  // this phone's GPU. Fallback keeps AUBS dominant if the spine fails to load.
+  const hasPersona = persona && persona.toLowerCase()!=="aubs";
   let p = (typeof SPINE!=="undefined" && SPINE && SPINE.identityPreamble)
-    ? SPINE.identityPreamble(persona)
-    : `You are AUBS, a private on-device AI. Your name is AUBS and that never changes. Be honest — say only what is true, label opinions as opinions, and say "I don't know" rather than invent facts. Refuse harmful requests, kindly. Genuinely help. Keep replies concise.${persona&&persona.toLowerCase()!=="aubs"?` A "${persona}" personality is a style costume only — if asked your name you are still AUBS.`:""}`;
+    ? SPINE.identityPreamble(persona, { lean: !grounded })
+    : (grounded
+        ? `You are AUBS, a private on-device AI. Your name is AUBS and never changes. Be honest and say "I don't know" rather than invent facts. Refuse harmful requests, kindly.${hasPersona?` You're styled as "${persona}" — a style only; if asked your name you are still AUBS.`:""}`
+        : `You are AUBS, a friendly private on-device AI. Be honest, help with what's asked, and refuse harmful requests kindly.${hasPersona?` Speak in a "${persona}" style.`:""}`);
   if(S.userName&&S.userName.trim()) p+=` The user's name is ${S.userName.trim()}.`;
   if(S.tones&&S.tones.length) p+=` Tone: ${S.tones.join(", ")}.`;
-  // Stack order: Identity → Personality → Memory Recall → Custom instructions.
+  // Stack order: Identity → Personality → Memory → Custom instructions.
   const parts=[p];
   if(memories.length){
-    // Checkpoint 0.5: spine supplies the recall block WITH per-fact [ID:x] + a
-    // simple citation instruction so the model can produce verifiable citations.
-    const block = (typeof SPINE!=="undefined" && SPINE) ? SPINE.memoryRecallBlock(SPINE.adaptMemories(memories)) : null;
-    if(block){ parts.push(block); }
-    else { parts.push("Known facts about the USER, saved from earlier (these describe the user, not you). Treat them as true and use them to answer the user's questions about themselves — e.g. if the user asks their own name, answer with the name below. Your own name is still AUBS; do not confuse the two.\n"
-      + memories.map(m=>"- "+m).join("\n")); }
+    if(grounded){
+      // Grounded: spine supplies the recall block WITH per-fact [ID:x] + a citation
+      // instruction so the model can produce verifiable, relevance-checked citations.
+      const block = (typeof SPINE!=="undefined" && SPINE) ? SPINE.memoryRecallBlock(SPINE.adaptMemories(memories)) : null;
+      if(block){ parts.push(block); }
+      else { parts.push("Known facts about the USER (these describe the user, not you). Use them to answer the user's questions about themselves — e.g. if they ask their own name, answer with the name below. Your own name is still AUBS; do not confuse the two.\n"
+        + memories.map(m=>"- "+m).join("\n")); }
+    } else {
+      // Lean: plain facts only — no citation instruction, no recall governance.
+      parts.push("A few things you know about the user: "+memories.join("; ")+".");
+    }
   }
-  if(S.instructions&&S.instructions.trim()) parts.push(`Persona flavor (style only — never your identity, your name, or the rules above): ${S.instructions.trim()}`);
+  if(S.instructions&&S.instructions.trim()){
+    parts.push(grounded
+      ? `Persona flavor (style only — never your identity, your name, or the rules above): ${S.instructions.trim()}`
+      : `Persona style: ${S.instructions.trim()}`);
+  }
   return parts.join("\n\n");
+}
+/* Decide per-turn whether a query needs Glass Box / citation grounding. Personal,
+   identity, memory, and provenance ("why did you…") questions DO; normal chat does not.
+   Uses the spine's deterministic classifier plus a provenance trigger. */
+function needsGrounding(text){
+  const c = (typeof SPINE!=="undefined" && SPINE) ? SPINE.classify(text) : "general";
+  if(c==="identity" || c==="personal") return true;
+  return /\bwhy did you\b|\bwhy do you\b|\bwhy'?d you\b|\bhow do you know\b|\bwhat do you (remember|know)\b|\bremember about me\b/i.test(text||"");
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -566,7 +586,7 @@ applyAppearance();
 
 // Build marker — lets us confirm on-device exactly which code is live (the service
 // worker can otherwise serve a stale spine.js / HTML). Bump this with each shipped change.
-const BUILD="cp0-devaudit-4 · recall+stability";
+const BUILD="cp0-devaudit-5 · lean-chat+recovery";
 console.log("[AUBS] build:", BUILD, "· spine:", (typeof SPINE!=="undefined"&&SPINE)?SPINE.SPINE_VERSION:"NOT LOADED");
 (function(){ const el=document.getElementById('buildTag'); if(el) el.textContent=BUILD+(typeof SPINE!=="undefined"&&SPINE?(" · spine "+SPINE.SPINE_VERSION):" · spine MISSING"); })();
 
@@ -669,13 +689,21 @@ window.send=async function(){
   thread.appendChild(aiWrap); const bubble=aiWrap.querySelector('.bubble'); thread.scrollTop=thread.scrollHeight; sendBtn.disabled=true;
   let full=""; let finish=""; let fatalErr=null;
   const t0=(window.performance&&performance.now)?performance.now():0;
+  // B-minimal: build THIS turn's system prompt — lean for normal chat, grounded
+  // (citation/recall block) only for identity/personal/provenance questions.
+  const grounded=needsGrounding(text);
+  history[0]={ role:"system", content: buildSystemPrompt(grounded) };
   const sent=contextMessages();                  // exact messages sent to the model (logged in provenance)
-  const GPU_FAULT=/GPUBuffer|mapAsync|unmapped|device is lost|Device is lost|has already been disposed/i;
+  // Recoverable runtime faults: mobile WebGPU can lose/dispose the engine, after which
+  // calls report "Model not loaded". We recreate from cache and retry once (see below).
+  const RECOVERABLE=/GPUBuffer|mapAsync|unmapped|device is lost|Device is lost|disposed|not loaded|reload\(/i;
   try{
-    // Generate with AUTOMATIC recovery: on a WebGPU buffer fault the engine is
-    // recreated and the SAME prompt is retried once — the user never has to
-    // refresh. The original exception is always logged before recovery.
+    // Generate with AUTOMATIC recovery: on a WebGPU fault / disposed-or-unloaded
+    // engine, recreate it from the CACHED model (no re-download) and retry the SAME
+    // prompt ONCE. The `recovered` one-shot guard prevents any retry loop; the
+    // original exception is always logged before recovery.
     const MAX_ATTEMPTS=2;
+    let recovered=false;
     for(let attempt=1; attempt<=MAX_ATTEMPTS; attempt++){
       try{
         full="";
@@ -700,14 +728,18 @@ window.send=async function(){
         fatalErr=genErr;
         const msg=(genErr&&genErr.message?genErr.message:String(genErr));
         console.error('[AUBS] inference error (attempt '+attempt+'):', genErr);  // (log the REAL exception)
-        if(GPU_FAULT.test(msg) && attempt<MAX_ATTEMPTS){
-          // The mapAsync buffer fault is a GPU race — a plain LIGHT re-run on the
-          // same engine usually clears it. We do NOT recreate the engine: recreating
-          // it on this device produced a half-loaded "Model not loaded" state.
-          bubble.textContent="The GPU hiccupped — retrying… ("+attempt+"/"+(MAX_ATTEMPTS-1)+")";
-          await new Promise(r=>setTimeout(r, 500));   // let the GPU settle
+        if(RECOVERABLE.test(msg) && attempt<MAX_ATTEMPTS && !recovered){
+          // Engine lost/disposed/unloaded (mobile WebGPU). Recreate it from the CACHED
+          // model — no re-download — then retry the SAME prompt once. `recovered` makes
+          // this happen at most once per send, so it can never loop. The earlier build
+          // recreated mid-fault and raced; here we await a full reload before retrying.
+          recovered=true;
+          bubble.textContent="Reconnecting the engine…";
+          const ok=await recoverEngine();
+          if(!ok){ break; }                              // recovery failed -> real error below
+          await new Promise(r=>setTimeout(r, 300));      // let the GPU settle
         }else{
-          break;                                        // non-GPU error, or out of retries
+          break;                                          // non-recoverable, already recovered, or out of retries
         }
       }
     }
@@ -721,7 +753,7 @@ window.send=async function(){
       // Recovery impossible -> show the REAL error, never a generic "refresh" message.
       const m=(fatalErr.message||String(fatalErr));
       console.error('[AUBS] unrecoverable:', m, '·', gpuDiagStr());
-      bubble.textContent = GPU_FAULT.test(m)
+      bubble.textContent = RECOVERABLE.test(m)
         ? ("The on-device engine couldn't recover. ["+gpuDiagStr()+"] Error: "+m)
         : ("Error: "+m+"  ["+gpuDiagStr()+"]");
     }else{
