@@ -21,7 +21,10 @@
 (function () {
   "use strict";
 
-  var SPINE_VERSION = "cp0-spine-1.1.0";
+  // 1.2.0: adds `grounding_source` to the provenance/trace (Article 1a#6 requires a
+  // version bump for any trace-format change) + two default-OFF control flags and the
+  // candidate `verifyGrounding` (Article 3a amendment — NOT yet law; council ratifies).
+  var SPINE_VERSION = "cp0-spine-1.2.0";
 
   /* -- Article 6: Feature flag framework. Layers are NOT built; all default OFF.
         Flags here change computation only — never truth/tag semantics. -------- */
@@ -29,7 +32,10 @@
     FLAG_DISTILL: false,
     FLAG_ROUTER: false,
     FLAG_FASTBOOT: false,
-    FLAG_SKILLS: false
+    FLAG_SKILLS: false,
+    // Control flags (Article 6), default OFF. Dogfood/diagnostic only.
+    FLAG_TRACE_VERBOSE: false,           // expose the full per-turn trace in the app
+    FLAG_SPINE_VERIFIED_GROUNDING: false // CANDIDATE Article 3a amendment (see verifyGrounding)
   };
   function activeFlags() {
     return Object.keys(FLAGS).filter(function (k) { return FLAGS[k] === true; });
@@ -345,6 +351,53 @@
     return { tag: "general", memory_ids_cited: [] };
   }
 
+  /* ===========================================================================
+     verifyGrounding — CANDIDATE Article 3a AMENDMENT (NOT yet ratified law).
+     ---------------------------------------------------------------------------
+     Article 3a as written grounds ONLY on a model-emitted [ID:x]. Device evidence
+     shows 1B models rarely emit that tag, so memory-backed answers almost never
+     reach 'grounded' even when they correctly state the fact. This function is a
+     DETERMINISTIC, model-free post-hoc check proposed as an amendment: it grounds an
+     answer only when ALL hold —
+       1. a cited-or-not memory is in_prompt, user_verified, not superseded,
+       2. it passes relevanceCheck(query, content)  (same guard as 3a), AND
+       3. the answer AFFIRMATIVELY states that memory's exact value (substring match,
+          with a negation guard so "your code is not 1234" does NOT ground 1234 —
+          the classic 3a false-positive trap).
+     It is invoked ONLY when FLAG_SPINE_VERIFIED_GROUNDING is ON (default OFF), and
+     it records grounding_source:'spine_verified' (vs 'model_cited') so the Glass Box
+     never blurs the two. Conservative by design: when unsure, it does NOT ground.
+     KNOWN LIMITS (for council): literal value match only (no paraphrase/synonyms);
+     the negation guard is a fixed window, not a parser. Ratification required before
+     this becomes law; until then it stays behind the flag. ====================== */
+  function extractMemoryValue(content) {
+    var c = String(content || "").replace(/[.?!,;:]+$/, "").trim();
+    c = c.replace(/^user('?s)?\s+/i, "");
+    c = c.replace(/^(name\s+is|favou?rite\s+.+?\s+is|is\s+working\s+on|is\s+from|lives?\s+in|works?\s+at|works?\s+as|builds?|makes?|creates?|likes?|loves?|enjoys?|prefers?|is|are)\s+/i, "");
+    return c.trim();
+  }
+  function verifyGrounding(opts) {
+    opts = opts || {};
+    var q = opts.query, ans = String(opts.answer || ""), lc = ans.toLowerCase();
+    if (!q || !ans) return { grounded: false };
+    var inPrompt = {};
+    (opts.memory_ids_in_prompt || []).forEach(function (id) { inPrompt[id] = true; });
+    var live = liveEntries(opts.entries || []);
+    for (var i = 0; i < live.length; i++) {
+      var e = live[i];
+      if (inPrompt[e.id] !== true) continue;                       // must have been offered
+      if (!relevanceCheck(q, e.content).relevant) continue;        // same relevance guard as 3a
+      var val = extractMemoryValue(e.content).toLowerCase();
+      if (val.length < 2) continue;
+      var idx = lc.indexOf(val);
+      if (idx < 0) continue;                                       // answer must state the value
+      var pre = lc.slice(Math.max(0, idx - 18), idx);
+      if (/\b(not|isn'?t|aren'?t|don'?t|never|no longer|wrong)\b/.test(pre)) continue;  // negation guard
+      return { grounded: true, id: e.id, value: val, grounding_source: "spine_verified" };
+    }
+    return { grounded: false };
+  }
+
   /* -- Article 3b: danger-topic deterministic fact-check (geo starter).
         A 'general' claim that places a known city in the wrong state -> unknown. */
   var GEO = {
@@ -391,8 +444,13 @@
         (no drift). Kept simple for 1B models. ---------------------------------- */
   function citationInstruction(exampleId) {
     var ex = exampleId || "abc123";
-    return "Each fact below has an id in square brackets. If your answer uses a fact, copy its id right after that part, like [ID:" + ex + "]. " +
-      "Only use ids shown below. Do not cite a fact that is not listed. If no fact below answers the question, do not write any id.";
+    // Path 2.1 (device audit): simpler + more direct + a worked example, because 1B
+    // models followed the old wording unreliably. Kept short (prefill budget).
+    return "RULE: when a fact below answers the question, end your sentence by copying that " +
+      "fact's id in square brackets, exactly like [ID:" + ex + "]. " +
+      "Example — fact \"[ID:" + ex + "] User's name is Chris\", question \"what's my name?\", " +
+      "you answer: \"Your name is Chris [ID:" + ex + "].\" " +
+      "Use only the ids shown below. If no fact answers, write no id.";
   }
   // Full memory-recall block injected at build_prompt. Returns null if no live memory.
   function memoryRecallBlock(entries) {
@@ -462,6 +520,7 @@
       memory_ids_in_prompt: o.memory_ids_in_prompt || [],
       memory_ids_cited: o.memory_ids_cited || [],
       tag: o.tag || "unknown",
+      grounding_source: o.grounding_source || null,   // 'model_cited' | 'spine_verified' (candidate) | null
       tier_used: o.tier_used || "low",
       flags_active: o.flags_active || [],
       source_of_answer: o.source_of_answer || "model",
@@ -520,6 +579,8 @@
     parseCitations: parseCitations, tagAnswer: tagAnswer, dangerFactCheck: dangerFactCheck,
     // Checkpoint 0.6 — relevance guard
     relevanceCheck: relevanceCheck,
+    // CANDIDATE Article 3a amendment (gated by FLAG_SPINE_VERIFIED_GROUNDING; not law)
+    verifyGrounding: verifyGrounding,
     // Art 3 + Glass Box
     makeProvenance: makeProvenance, logProvenance: logProvenance,
     lastProvenance: lastProvenance, allProvenance: allProvenance, glassBox: glassBox

@@ -336,6 +336,16 @@ body{background:var(--bgbase);color:var(--ink);font-family:var(--font-body);
 <script type="module">
 import * as webllm from "https://esm.run/@mlc-ai/web-llm@0.2.84";
 const SPINE = (typeof window!=="undefined" && window.AUBS_SPINE) ? window.AUBS_SPINE : null;
+// Dogfood control flags (Article 6), enabled per-session via URL or localStorage — never
+// a product UI, never on by default. ?trace=1 → full per-turn trace; ?svg=1 → the CANDIDATE
+// spine-verified grounding (Article 3a amendment, not law). Both default OFF.
+if(SPINE && SPINE.FLAGS){
+  try{
+    const qp=new URLSearchParams(location.search);
+    if(qp.get('trace')==='1'||localStorage.getItem('aubs_trace')==='1') SPINE.FLAGS.FLAG_TRACE_VERBOSE=true;
+    if(qp.get('svg')==='1'||localStorage.getItem('aubs_svg')==='1') SPINE.FLAGS.FLAG_SPINE_VERIFIED_GROUNDING=true;
+  }catch(e){}
+}
 
 const DEFAULTS = { aiName:"AUBS", userName:"", tones:[], instructions:"", theme:"midnight", c1:"#4FD4FF", c2:"#9B4DFF", bg:"" };
 let S = load();
@@ -586,7 +596,7 @@ applyAppearance();
 
 // Build marker — lets us confirm on-device exactly which code is live (the service
 // worker can otherwise serve a stale spine.js / HTML). Bump this with each shipped change.
-const BUILD="cp0-devaudit-5 · lean-chat+recovery";
+const BUILD="cp0-devaudit-6 · grounding-dx";
 console.log("[AUBS] build:", BUILD, "· spine:", (typeof SPINE!=="undefined"&&SPINE)?SPINE.SPINE_VERSION:"NOT LOADED");
 (function(){ const el=document.getElementById('buildTag'); if(el) el.textContent=BUILD+(typeof SPINE!=="undefined"&&SPINE?(" · spine "+SPINE.SPINE_VERSION):" · spine MISSING"); })();
 
@@ -775,7 +785,7 @@ function addMsg(role,text){
    every live memory id (honest). Grounding requires a verified [ID:x] citation
    (Article 3a); danger topics get the geo fact-check floor (Article 3b). */
 function logProvenanceFor(query, answer, sentMsgs, t0, aiWrap){
-  if(!SPINE) return;
+  if(!SPINE) return null;
   try{
     const entries=SPINE.adaptMemories(memories);
     const live=SPINE.liveEntries(entries);
@@ -787,23 +797,63 @@ function logProvenanceFor(query, answer, sentMsgs, t0, aiWrap){
     // accepts the [m_x] shorthand as well as [ID:x] (still gated by relevance).
     let r=SPINE.tagAnswer({ answer, query, memory_ids_in_prompt:idsInPrompt, entries, classification:cls, tolerantFormat:true });
     let tag=r.tag, cited=r.memory_ids_cited;
-    if(!SPINE.dangerFactCheck(answer).ok){ tag='unknown'; cited=[]; }   // Article 3b override
+    let groundingSource = (tag==='grounded') ? 'model_cited' : null;   // Article 3a (law): model emitted [ID:x]
+    // CANDIDATE Article 3a amendment (FLAG_SPINE_VERIFIED_GROUNDING, default OFF): if the
+    // model produced a relevant personal answer WITHOUT a citation (tag 'inferred'), let the
+    // spine deterministically verify the exact value and ground it as 'spine_verified'.
+    // Never upgrades general/unknown/identity, so identity (Art.12) can never ground.
+    if(tag==='inferred' && SPINE.FLAGS && SPINE.FLAGS.FLAG_SPINE_VERIFIED_GROUNDING && SPINE.verifyGrounding){
+      const v=SPINE.verifyGrounding({ answer, query, memory_ids_in_prompt:idsInPrompt, entries });
+      if(v.grounded){ tag='grounded'; cited=[v.id]; groundingSource='spine_verified'; }
+    }
+    if(!SPINE.dangerFactCheck(answer).ok){ tag='unknown'; cited=[]; groundingSource=null; }   // Article 3b override
     const latency=((window.performance&&performance.now)?performance.now():0)-t0;
     const prov=SPINE.makeProvenance({
       query, timestamp:(typeof Date!=='undefined'?Date.now():0),
       prompt_hash:meta.prompt_hash, memory_ids_in_prompt:idsInPrompt, memory_ids_cited:cited,
-      tag, tier_used:(currentTier==='fast'?'low':'mid'), flags_active:SPINE.activeFlags(),
+      tag, grounding_source:groundingSource, tier_used:(currentTier==='fast'?'low':'mid'), flags_active:SPINE.activeFlags(),
       source_of_answer:'model', latency_ms:Math.round(latency)
     });
     SPINE.logProvenance(prov);
     attachWhy(aiWrap, prov);
-  }catch(e){ console.warn('[spine] provenance failed (chat unaffected):', e); }
+    // FLAG_TRACE_VERBOSE (dogfood): expose the full per-turn trace for diagnosis.
+    if(SPINE.FLAGS && SPINE.FLAGS.FLAG_TRACE_VERBOSE){
+      const trace={
+        prompt: sentMsgs.map(m=>m.role.toUpperCase()+":\n"+m.content).join("\n\n"),
+        memory_ids_in_prompt: idsInPrompt,
+        raw_model_output: answer,
+        parsed_citations: SPINE.parseCitations(answer,{tolerant:true}),
+        tag, grounding_source: groundingSource,
+        reason: (tag==='grounded' ? ('grounded via '+groundingSource) :
+                 tag==='general' ? 'identity/general — never grounds on user memory (Art.12/3a)' :
+                 tag==='unknown' ? 'conflict or danger fact-check (Art.2/3b)' :
+                 (idsInPrompt.length ? 'memory in prompt but no verified citation → inferred (Art.3a)' : 'no memory retrieved → inferred/general'))
+      };
+      window.__lastTrace=trace;
+      console.log('[AUBS TRACE]', trace);
+      renderTrace(aiWrap, trace);
+    }
+    return prov;
+  }catch(e){ console.warn('[spine] provenance failed (chat unaffected):', e); return null; }
+}
+function renderTrace(aiWrap, trace){
+  if(!aiWrap) return;
+  const pre=document.createElement('pre');
+  pre.style.cssText='white-space:pre-wrap;word-break:break-word;font-size:10px;line-height:1.4;background:rgba(0,0,0,.25);border:1px solid var(--edge);border-radius:8px;padding:8px;margin:6px 0;color:var(--muted);max-height:280px;overflow:auto';
+  pre.textContent='— TRACE (FLAG_TRACE_VERBOSE) —\n'
+    +'tag: '+trace.tag+(trace.grounding_source?(' ('+trace.grounding_source+')'):'')+'\n'
+    +'reason: '+trace.reason+'\n'
+    +'memory_ids_in_prompt: '+JSON.stringify(trace.memory_ids_in_prompt)+'\n'
+    +'parsed_citations: '+JSON.stringify(trace.parsed_citations)+'\n\n'
+    +'RAW MODEL OUTPUT:\n'+trace.raw_model_output+'\n\n'
+    +'FULL PROMPT SENT:\n'+trace.prompt;
+  aiWrap.appendChild(pre);
 }
 function attachWhy(aiWrap, prov){
   if(!aiWrap || !prov) return;
   const why=document.createElement('button');
   why.type='button';
-  why.textContent='Why? · '+prov.tag;
+  why.textContent='Why? · '+prov.tag+(prov.grounding_source==='spine_verified'?' (spine-verified)':'');
   why.setAttribute('aria-label','Why this answer (Glass Box trace)');
   why.style.cssText='margin:6px 0 2px;font:inherit;font-size:11px;letter-spacing:.04em;background:transparent;border:0;color:var(--faint);cursor:pointer;padding:2px 0;opacity:.75';
   why.onclick=function(){
