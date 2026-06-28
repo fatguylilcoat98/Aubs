@@ -596,19 +596,19 @@ applyAppearance();
 
 // Build marker — lets us confirm on-device exactly which code is live (the service
 // worker can otherwise serve a stale spine.js / HTML). Bump this with each shipped change.
-const BUILD="cp0-devaudit-11 · SmolLM2-1.7B";
+const BUILD="cp0-devaudit-12 · Qwen2.5-0.5B";
 console.log("[AUBS] build:", BUILD, "· spine:", (typeof SPINE!=="undefined"&&SPINE)?SPINE.SPINE_VERSION:"NOT LOADED");
 (function(){ const el=document.getElementById('buildTag'); if(el) el.textContent=BUILD+(typeof SPINE!=="undefined"&&SPINE?(" · spine "+SPINE.SPINE_VERSION):" · spine MISSING"); })();
 
-// Track A (lever 3, tuned): the mapAsync fault is driven by VOCAB size, not params —
-// the lm_head/embedding is the buffer that overflows the Adreno 128MB binding cap.
-// Llama-3.2-1B (128k vocab) = ~125MB → overflow → fault. SmolLM2's 49k vocab keeps that
-// buffer small, so we pick the LARGEST small-vocab model that still fits: SmolLM2-1.7B
-// (lm_head ~48MB, far smarter than the crash-free-but-babbling 360M). 360M stays as the
-// safe floor; Llama-1B last. resolve() picks the first id present in this WebLLM build.
+// Fast default = Qwen2.5-0.5B-Instruct — the original "0.9 GB test model" (945MB download)
+// that ran coherent + crash-free on the phone before we ever switched it. It's a sweet
+// spot for the Adreno 128MB cap: 0.5B params, and its lm_head buffer (~68MB) fits under
+// the cap, so no mapAsync fault, while Qwen2.5-0.5B is unusually coherent for its size.
+// SmolLM2-1.7B (also fits) and Llama-1B remain as fallbacks; resolve() picks the first id
+// present in this WebLLM build. Smart tier offers the larger models when the user opts in.
 const MODELS={
-  fast:{ f16:["SmolLM2-1.7B-Instruct-q4f16_1-MLC","SmolLM2-360M-Instruct-q4f16_1-MLC","Llama-3.2-1B-Instruct-q4f16_1-MLC"],
-         f32:["SmolLM2-1.7B-Instruct-q4f32_1-MLC","SmolLM2-360M-Instruct-q4f32_1-MLC","Llama-3.2-1B-Instruct-q4f32_1-MLC"] },
+  fast:{ f16:["Qwen2.5-0.5B-Instruct-q4f16_1-MLC","SmolLM2-1.7B-Instruct-q4f16_1-MLC","Llama-3.2-1B-Instruct-q4f16_1-MLC"],
+         f32:["Qwen2.5-0.5B-Instruct-q4f32_1-MLC","SmolLM2-1.7B-Instruct-q4f32_1-MLC","Llama-3.2-1B-Instruct-q4f32_1-MLC"] },
   smart:{ f16:["SmolLM2-1.7B-Instruct-q4f16_1-MLC","Qwen2.5-1.5B-Instruct-q4f16_1-MLC","Llama-3.2-3B-Instruct-q4f16_1-MLC"],
           f32:["SmolLM2-1.7B-Instruct-q4f32_1-MLC","Qwen2.5-1.5B-Instruct-q4f32_1-MLC","Llama-3.2-3B-Instruct-q4f32_1-MLC"] }
 };
