@@ -596,7 +596,7 @@ applyAppearance();
 
 // Build marker — lets us confirm on-device exactly which code is live (the service
 // worker can otherwise serve a stale spine.js / HTML). Bump this with each shipped change.
-const BUILD="cp0-devaudit-7 · nonstream";
+const BUILD="cp0-devaudit-8 · recovery2";
 console.log("[AUBS] build:", BUILD, "· spine:", (typeof SPINE!=="undefined"&&SPINE)?SPINE.SPINE_VERSION:"NOT LOADED");
 (function(){ const el=document.getElementById('buildTag'); if(el) el.textContent=BUILD+(typeof SPINE!=="undefined"&&SPINE?(" · spine "+SPINE.SPINE_VERSION):" · spine MISSING"); })();
 
@@ -677,15 +677,25 @@ function enterChat(tier){ currentTier=tier; document.getElementById('chatModel')
 function show(id){ document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active')); document.getElementById(id).classList.add('active'); }
 window.grow=(t)=>{ t.style.height='auto'; t.style.height=Math.min(t.scrollHeight,120)+'px'; };
 window.keys=(e)=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); window.send(); } };
-/* Runtime recovery: recreate the engine after a WebGPU fault (mobile WebGPU can
-   leave the engine in a bad/disposed state). Recreating re-inits the GPU from the
-   cached model (no re-download). Returns true on success. */
+/* Runtime recovery (lever 2): the quick single recreate re-faulted on the S24 — a lost
+   Adreno GPU device needs TIME to release before a fresh one can be acquired. So: fully
+   drop the old engine, then retry CreateMLCEngine with increasing backoff (1s/2s/3s), and
+   confirm the new device is actually alive with a 1-token warmup before handing it back.
+   Re-inits from the CACHED model (no re-download). Returns true on success. */
 async function recoverEngine(){
   try{ if(engine && engine.unload) await engine.unload(); }catch(e){}
-  try{
-    engine = await webllm.CreateMLCEngine(chosenModel, { initProgressCallback:()=>{} });
-    return true;
-  }catch(e){ console.error('[AUBS] engine recovery (reload) failed:', e); return false; }
+  engine=null;
+  for(let attempt=1; attempt<=3; attempt++){
+    try{
+      await new Promise(r=>setTimeout(r, attempt*1000));            // let the GPU device release
+      const e2 = await webllm.CreateMLCEngine(chosenModel, { initProgressCallback:()=>{} });
+      await e2.chat.completions.create({ messages:[{role:"user",content:"hi"}], stream:false, max_tokens:1 }); // warmup proves the device is alive
+      engine=e2;
+      console.log('[AUBS] engine recovered on attempt '+attempt);
+      return true;
+    }catch(e){ console.error('[AUBS] recovery attempt '+attempt+' failed:', e); engine=null; }
+  }
+  return false;
 }
 window.send=async function(){
   const box=document.getElementById('box'); const text=box.value.trim();
@@ -736,7 +746,7 @@ window.send=async function(){
           // this happen at most once per send, so it can never loop. The earlier build
           // recreated mid-fault and raced; here we await a full reload before retrying.
           recovered=true;
-          bubble.textContent="Reconnecting the engine…";
+          bubble.textContent="Reconnecting the engine… (a few seconds)";
           const ok=await recoverEngine();
           if(!ok){ break; }                              // recovery failed -> real error below
           await new Promise(r=>setTimeout(r, 300));      // let the GPU settle
