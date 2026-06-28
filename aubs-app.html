@@ -590,7 +590,7 @@ applyAppearance();
 
 // Build marker — lets us confirm on-device exactly which code is live (the service
 // worker can otherwise serve a stale spine.js / HTML). Bump this with each shipped change.
-const BUILD="cp0-router-1 · response-quality-layer";
+const BUILD="cp0-router-2 · safety-gate-hardened";
 console.log("[AUBS] build:", BUILD, "· spine:", (typeof SPINE!=="undefined"&&SPINE)?SPINE.SPINE_VERSION:"NOT LOADED");
 (function(){ const el=document.getElementById('buildTag'); if(el) el.textContent=BUILD+(typeof SPINE!=="undefined"&&SPINE?(" · spine "+SPINE.SPINE_VERSION):" · spine MISSING"); })();
 
@@ -716,12 +716,24 @@ window.send=async function(){
   thread.appendChild(aiWrap); const bubble=aiWrap.querySelector('.bubble'); thread.scrollTop=thread.scrollHeight; sendBtn.disabled=true;
   let full=""; let finish=""; let fatalErr=null;
   const t0=(window.performance&&performance.now)?performance.now():0;
-  // FLAG_ROUTER — Response Quality Layer v1: try a deterministic answer BEFORE the model.
+  // SAFETY GATE (Article 4): runs ALWAYS — before the router and the model, regardless of any
+  // flag. A blocked request NEVER reaches the model. This is the pre-display gate that cannot
+  // be skipped; without it (the prior build) unsafe prompts went straight to the 0.5B.
+  const gate=(SPINE&&SPINE.safetyGate)?SPINE.safetyGate(text):{blocked:false};
+  // FLAG_ROUTER — Response Quality Layer v1: deterministic answer BEFORE the model (skipped if blocked).
   const routerOn=!!(SPINE&&SPINE.FLAGS&&SPINE.FLAGS.FLAG_ROUTER);
   const routerEntries=(SPINE&&SPINE.adaptMemories)?SPINE.adaptMemories(memories):[];
-  const routed=(routerOn&&SPINE.routeQuery)?SPINE.routeQuery(text,{ entries:routerEntries, persona:S.aiName, instructions:S.instructions }):null;
+  const routed=(!gate.blocked && routerOn&&SPINE.routeQuery)?SPINE.routeQuery(text,{ entries:routerEntries, persona:S.aiName, instructions:S.instructions }):null;
   const RECOVERABLE=/GPUBuffer|mapAsync|unmapped|device is lost|Device is lost|disposed|not loaded|reload\(/i;
   try{
+    if(gate.blocked){
+      // Refuse safely; do NOT call the model and do NOT capture memories from harmful text.
+      full=(SPINE&&SPINE.safeResponse)?SPINE.safeResponse(gate.reason):"I can't help with that — it could cause harm.";
+      finish="blocked:"+gate.reason; bubble.textContent=full;
+      history.push({role:"assistant",content:full});
+      saveHistory(history.slice(1));
+      logProvenanceFor(text, full, [history[0],{role:"user",content:text}], t0, aiWrap, { handled:true, intent:gate.reason, source_of_answer:"rule", tag:"unknown", memory_ids_cited:[], grounding_source:null });
+    } else
     if(routed && routed.handled){
       // Deterministic route — NO model call. Identity/math/memory/capability/greeting/unsafe.
       full=routed.answer; finish="router:"+routed.intent; bubble.textContent=full;

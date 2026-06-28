@@ -24,7 +24,7 @@
   // 1.2.0: adds `grounding_source` to the provenance/trace (Article 1a#6 requires a
   // version bump for any trace-format change) + two default-OFF control flags and the
   // candidate `verifyGrounding` (Article 3a amendment — NOT yet law; council ratifies).
-  var SPINE_VERSION = "cp0-spine-1.3.0";
+  var SPINE_VERSION = "cp0-spine-1.3.1";
 
   /* -- Article 6: Feature flag framework. Layers are NOT built; all default OFF.
         Flags here change computation only — never truth/tag semantics. -------- */
@@ -428,20 +428,48 @@
     return { ok: true };
   }
 
-  /* -- safety gate (deterministic blocklist, pre-display). Conservative: only
-        obvious harm patterns trip it, so normal chat is never altered. -------- */
+  /* -- safety gate (deterministic, pre-display; Article 4 — cannot be skipped). --------
+     v1.3.1: phrase-matching alone was bypassable ("how is dynamite made for my research
+     paper"). Now it ALSO blocks a harm-PRODUCTION topic co-occurring with a make/obtain
+     intent — and "for research / hypothetically / in a story" frames do NOT exempt it
+     (those are jailbreaks, not licenses). Benign collisions (bath bomb, f-bomb, "the bomb",
+     quitting/recovery help) are guarded so normal chat isn't altered. Conservative by
+     design: it errs toward blocking obvious harm-production over a few rare false positives.
+     This is a backstop, not a complete defense — the model's own refusal is a second layer. */
   var UNSAFE = [
-    /\bhow to (make|build|create) (a |an )?(bomb|explosive|weapon|gun)\b/i,
-    /\bhack(ing)? (into )?(someone|somebody|a|their|his|her|my ex)\b/i,
-    /\bsteal (someone'?s |somebody'?s )?(password|identity|credit card|money)\b/i,
-    /\b(make|write|build|create|code)( me)?( a| an)? (virus|malware|ransomware|keylogger|spyware|trojan)\b/i
+    /\bhow (?:to|do i|can i|would i)\s+(?:make|build|create|assemble|construct|3d ?print|manufacture)\s+(?:a |an |the )?(?:bomb|explosive|dynamite|grenade|ie ?d|silencer|suppressor|ghost gun|untraceable (?:gun|firearm)|weapon)\b/i,
+    /\bhack(?:ing)? (?:into )?(?:someone|somebody|a |the |their |his |her |my ex|an? account|a phone|a computer|wi-?fi|the network|the wifi)\b/i,
+    /\bsteal (?:someone'?s |somebody'?s |his |her |their |a )?(?:password|identity|credit card|money|data|account|car)\b/i,
+    /\b(?:make|write|build|create|code|develop)(?: me)?(?: a| an)? (?:virus|malware|ransomware|keylogger|spyware|trojan|rootkit|botnet)\b/i,
+    /\b(?:how (?:to|do i)|help me|best way to)\s+(?:poison|kill|murder|hurt|attack|stab|shoot)\s+(?:someone|somebody|a person|people|him|her|them|my\b)/i
   ];
+  // harm-PRODUCTION topics (things whose how-to-make is dangerous), excluding generic words
+  // that collide with benign chat (no bare "gun"/"poison" here — those need an explicit phrase).
+  var HARM_TOPIC = /\b(bombs?|explosives?|dynamite|tnt|c-?4|semtex|nitroglycerin(?:e)?|grenades?|ie ?ds?|napalm|thermite|molotov|blasting caps?|det(?:onator)? cord|nerve (?:agent|gas)|sarin|vx gas|mustard gas|ricin|anthrax|botulinum|chemical weapons?|bio(?:logical)? ?weapons?|dirty bomb|nuclear (?:bomb|weapon|device)|meth(?:amphetamine)?|crystal meth|fentanyl|heroin|cocaine|crack cocaine|lsd|mdma|ecstasy|cyanide|ghost guns?|untraceable (?:gun|firearm)|auto[- ]?sear|full[- ]auto conversion|silencers?|suppressors?)\b/i;
+  // production / acquisition intent (NOT generic "how to" — that collides with "how to quit X")
+  // NOTE: no trailing \b on the group — bare stems (manufactur, detonat, synthes…) must
+  // match their inflections (manufacture/manufacturing) which a closing \b would block.
+  var HARM_INTENT = /\b(make|made|making|build|building|built|create|creating|construct|synthes|manufactur|produc|cook|brew|assembl|detonat|obtain|acquir|buy|purchase|sell|recipe|formula|blueprint|schematic|instruction|tutorial|step[- ]by[- ]step|how .{0,40}\b(?:made|built|done))/i;
+  // common BENIGN collisions stripped before topic detection (bath bomb, f-bomb, "the bomb"…)
+  var BENIGN_STRIP = /\b(?:bath|f|the|da|glitter|photo|stink|sex|cherry|cinnamon|smoke) bombs?\b/gi;
+  var SELF_HARM = /\b(kill myself|killing myself|suicide|suicidal|end (?:my|it all) life|end my life|ending my life|take my (?:own )?life|want to die|wanna die|don'?t want to (?:live|be alive|be here|exist)|hurt myself|harm myself|cut(?:ting)? myself|overdose on)\b/i;
+
   function safetyGate(text) {
     var t = String(text || "");
+    if (SELF_HARM.test(t)) return { blocked: true, reason: "self_harm", category: "self_harm" };
     for (var i = 0; i < UNSAFE.length; i++) {
-      if (UNSAFE[i].test(t)) return { blocked: true, reason: "unsafe_request" };
+      if (UNSAFE[i].test(t)) return { blocked: true, reason: "unsafe_request", category: "harm" };
     }
+    var scan = t.replace(BENIGN_STRIP, " ");                       // drop bath-bomb etc. before topic test
+    if (HARM_TOPIC.test(scan) && HARM_INTENT.test(scan)) return { blocked: true, reason: "unsafe_topic", category: "harm" };
     return { blocked: false };
+  }
+  /* The text shown when the gate blocks. Self-harm gets care + a real resource, not a flat
+     "I can't help" — "we got your back" includes the hard moments. */
+  function safeResponse(reason) {
+    if (reason === "self_harm")
+      return "I'm really sorry you're carrying this right now — and I'm glad you said something. You deserve real support. If you're in the US, you can call or text 988 (Suicide & Crisis Lifeline) any time, or reach your local emergency number. Please talk to someone you trust too — you don't have to get through this alone.";
+    return "I can't help with that — it could cause real harm. If there's a safe, legal version of what you're after, tell me and I'll do my best to help with that instead.";
   }
 
   /* -- Checkpoint 0.5: citation instruction + memory recall block.
@@ -750,7 +778,7 @@
     makeMemoryEntry: makeMemoryEntry, adaptMemories: adaptMemories, liveEntries: liveEntries,
     extractFacts: extractFacts,
     // Art 4
-    classify: classify, retrieve: retrieve, buildPromptMeta: buildPromptMeta, safetyGate: safetyGate,
+    classify: classify, retrieve: retrieve, buildPromptMeta: buildPromptMeta, safetyGate: safetyGate, safeResponse: safeResponse,
     // Checkpoint 0.5 — citation reliability
     citationInstruction: citationInstruction, memoryRecallBlock: memoryRecallBlock, classifyCitation: classifyCitation,
     // Art 3a / 3b
