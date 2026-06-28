@@ -596,7 +596,7 @@ applyAppearance();
 
 // Build marker — lets us confirm on-device exactly which code is live (the service
 // worker can otherwise serve a stale spine.js / HTML). Bump this with each shipped change.
-const BUILD="cp0-devaudit-6 · grounding-dx";
+const BUILD="cp0-devaudit-7 · nonstream";
 console.log("[AUBS] build:", BUILD, "· spine:", (typeof SPINE!=="undefined"&&SPINE)?SPINE.SPINE_VERSION:"NOT LOADED");
 (function(){ const el=document.getElementById('buildTag'); if(el) el.textContent=BUILD+(typeof SPINE!=="undefined"&&SPINE?(" · spine "+SPINE.SPINE_VERSION):" · spine MISSING"); })();
 
@@ -717,22 +717,14 @@ window.send=async function(){
     for(let attempt=1; attempt<=MAX_ATTEMPTS; attempt++){
       try{
         full="";
-        // primary: streaming
-        const chunks=await engine.chat.completions.create({ messages:sent, stream:true, temperature:0.7, max_tokens:256 });
-        for await (const c of chunks){
-          const ch=c.choices?.[0];
-          full += ch?.delta?.content || "";
-          if(ch?.finish_reason) finish=ch.finish_reason;
-          if(full){ bubble.textContent=full; thread.scrollTop=thread.scrollHeight; }
-        }
-        // fallback ONLY if literally nothing came back at all
-        if(full.length===0){
-          try{
-            const res=await engine.chat.completions.create({ messages:sent, stream:false, temperature:0.7, max_tokens:256 });
-            full = res?.choices?.[0]?.message?.content || "";
-            finish = res?.choices?.[0]?.finish_reason || finish;
-          }catch(nsErr){ console.warn('[AUBS] non-stream fallback failed:', nsErr); }
-        }
+        // Lever 1 (device audit): NON-streaming generation. Streaming maps/unmaps a GPU
+        // buffer on every token chunk; that incremental mapping raced and faulted
+        // ("Buffer was unmapped before mapping was resolved", WebLLM #497) on the 2nd
+        // turn on this Adreno GPU. One decode = one readback. The dots cover the wait.
+        const res=await engine.chat.completions.create({ messages:sent, stream:false, temperature:0.7, max_tokens:256 });
+        full = res?.choices?.[0]?.message?.content || "";
+        finish = res?.choices?.[0]?.finish_reason || finish;
+        if(full){ bubble.textContent=full; thread.scrollTop=thread.scrollHeight; }
         fatalErr=null; break;                       // generation completed
       }catch(genErr){
         fatalErr=genErr;
