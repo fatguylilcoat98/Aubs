@@ -101,6 +101,41 @@ Estimated worst-case prefill for the Jack-Black persona case drops from ~520 tok
 ~550 fault zone) to ~420. Device retest: hold a 6+ turn conversation and confirm no "Model
 not loaded" / empty-reply crash.
 
+## Retrieval / prompt-assembly audit (follow-up — "memory not recalled")
+
+Device report: after "well hello im chris" stored a memory (counter → 1), the very next
+turns didn't recall it ("I'm not Chris, I'm AUBS"; "I don't know what you're referring to").
+Hypothesis was a broken retrieval pipeline. **Audited the full path by driving the real app
+with a model stub that records the exact `messages` sent to WebLLM** (`retrieval-audit.cjs`,
+`retrieval-audit-reload.cjs`).
+
+Result — the memory is supplied correctly at every stage; **it never disappears**:
+
+| Stage | Result |
+|---|---|
+| returned from storage | ✅ `["User's name is Chris"]` in `localStorage` |
+| `adaptMemories` / `liveEntries` | ✅ live + `user_verified` |
+| filtered out? | ✅ no |
+| in `memory_ids_in_prompt` | ✅ `[ID:m_8a51f056]` |
+| `build_prompt` inserts text | ✅ yes |
+| **final prompt to WebLLM** | ✅ `- [ID:m_8a51f056] User's name is Chris` — in-session **and** after a full reload |
+
+So the defect is **downstream of assembly** — a 1B model not acting on a correctly-supplied
+fact. Causes: (1) the recall framing only fired "when asked what you remember", which a small
+model doesn't map from "what's my name?"; (2) the identity line ("Your name is AUBS") competed
+with "User's name is Chris", producing "I'm not Chris, I'm AUBS"; (3) the device test used the
+*statement* "Im chris", not the *question* "what's my name?".
+
+**Fix (prompt-framing only, no new feature/layer):** `memoryRecallBlock` framing is now
+*enabling* and disambiguated — "Known facts about the USER … use them to answer the user's
+questions about themselves — e.g. if the user asks their own name, answer with the name below.
+Your own name is still AUBS; do not confuse the two." The `[ID:x]` lines + citation
+instruction are unchanged (citation/relevance/golden suites still pass). Best-effort for a
+small model — needs device confirmation with an actual **question**.
+
+**Device retest:** type `well hello im chris` → send → wait for reply, then ask **"what's my
+name?"** (a question). Expect "Chris". Statements like "im chris" are not recall prompts.
+
 ## Scope honored
 
 Changed: `spine/spine.js` (added `extractFacts` + helpers, `identityPreamble`; exported

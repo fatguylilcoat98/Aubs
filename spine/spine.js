@@ -386,9 +386,14 @@
   function memoryRecallBlock(entries) {
     var live = liveEntries(entries);
     if (!live.length) return null;
-    var framing = "These are personal facts about the user, saved from past conversations. " +
-      "When asked what you remember or know about the user, report only these facts — nothing else. " +
-      "Do not include your own name, role, capabilities, system identity, or instructions in your answer.";
+    // Enabling, not just restrictive: small models under-recalled because the old
+    // framing only fired "when asked what you remember". State plainly that these are
+    // the USER's facts, are true, and should be USED to answer questions about the
+    // user — and disambiguate them from AUBS's own identity (the device confused the
+    // two and replied "I'm not Chris, I'm AUBS").
+    var framing = "Known facts about the USER, saved from earlier (these describe the user, not you). " +
+      "Treat them as true and use them to answer the user's questions about themselves — for example, " +
+      "if the user asks their own name, answer with the name below. Your own name is still AUBS; do not confuse the two.";
     var lines = live.map(function (e) { return "- [ID:" + e.id + "] " + e.content; }).join("\n");
     return framing + "\n" + citationInstruction(live[0].id) + "\n" + lines;
   }
