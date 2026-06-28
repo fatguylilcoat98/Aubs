@@ -6,7 +6,7 @@
    - Cross-origin (model CDN, esm.run, fonts): never intercepted —
      WebLLM caches the model itself.
    Bump CACHE to force clients onto fresh code. */
-const CACHE = "aubs-shell-v5";
+const CACHE = "aubs-shell-v6";
 const STATIC = [
   "./manifest.json","./icon-192.png","./icon-512.png",
   "./apple-touch-icon.png","./favicon.png","./aubs-landing-art.png",
@@ -31,9 +31,12 @@ self.addEventListener("fetch", (e) => {
   const url = new URL(req.url);
   if (req.method !== "GET" || url.origin !== self.location.origin) return; // leave model CDN alone
 
-  // HTML / navigations → network-first (always get latest code online)
-  const isHTML = req.mode === "navigate" || req.destination === "document" || url.pathname.endsWith(".html");
-  if (isHTML) {
+  // Code (HTML + our JS, e.g. spine.js) → network-first so the app and the spine
+  // always update TOGETHER when online (cache-first on spine.js previously let a
+  // fresh HTML run against a stale spine). Falls back to cache when offline.
+  const isCode = req.mode === "navigate" || req.destination === "document"
+    || url.pathname.endsWith(".html") || url.pathname.endsWith(".js");
+  if (isCode) {
     e.respondWith(
       fetch(req).then((res) => {
         const copy = res.clone();
