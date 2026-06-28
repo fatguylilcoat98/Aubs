@@ -596,15 +596,20 @@ applyAppearance();
 
 // Build marker — lets us confirm on-device exactly which code is live (the service
 // worker can otherwise serve a stale spine.js / HTML). Bump this with each shipped change.
-const BUILD="cp0-devaudit-9 · recovery2+persona-clean";
+const BUILD="cp0-devaudit-10 · SmolLM2-360M";
 console.log("[AUBS] build:", BUILD, "· spine:", (typeof SPINE!=="undefined"&&SPINE)?SPINE.SPINE_VERSION:"NOT LOADED");
 (function(){ const el=document.getElementById('buildTag'); if(el) el.textContent=BUILD+(typeof SPINE!=="undefined"&&SPINE?(" · spine "+SPINE.SPINE_VERSION):" · spine MISSING"); })();
 
+// Track A (lever 3): default Fast to the SMALLEST capable model. SmolLM2-360M has a
+// ~49k vocab, so its embedding/output buffer (~90MB) fits UNDER the Adreno 128MB binding
+// cap — where Llama-3.2-1B's 128k-vocab buffer (~520MB) overflows and triggers the
+// mapAsync fault. Architecture-first: stability over model smarts. Larger models remain
+// as fallbacks (resolve() picks the first id actually present in this WebLLM build).
 const MODELS={
-  fast:{ f16:["Llama-3.2-1B-Instruct-q4f16_1-MLC","Qwen2.5-1.5B-Instruct-q4f16_1-MLC","SmolLM2-1.7B-Instruct-q4f16_1-MLC","TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC"],
-         f32:["Llama-3.2-1B-Instruct-q4f32_1-MLC","Qwen2.5-1.5B-Instruct-q4f32_1-MLC","SmolLM2-1.7B-Instruct-q4f32_1-MLC","TinyLlama-1.1B-Chat-v1.0-q4f32_1-MLC"] },
-  smart:{ f16:["Llama-3.2-3B-Instruct-q4f16_1-MLC","Qwen2.5-3B-Instruct-q4f16_1-MLC","Phi-3.5-mini-instruct-q4f16_1-MLC"],
-          f32:["Llama-3.2-3B-Instruct-q4f32_1-MLC","Qwen2.5-3B-Instruct-q4f32_1-MLC","Phi-3.5-mini-instruct-q4f32_1-MLC"] }
+  fast:{ f16:["SmolLM2-360M-Instruct-q4f16_1-MLC","Qwen2.5-0.5B-Instruct-q4f16_1-MLC","Llama-3.2-1B-Instruct-q4f16_1-MLC"],
+         f32:["SmolLM2-360M-Instruct-q4f32_1-MLC","Qwen2.5-0.5B-Instruct-q4f32_1-MLC","Llama-3.2-1B-Instruct-q4f32_1-MLC"] },
+  smart:{ f16:["Llama-3.2-1B-Instruct-q4f16_1-MLC","Qwen2.5-1.5B-Instruct-q4f16_1-MLC","Llama-3.2-3B-Instruct-q4f16_1-MLC"],
+          f32:["Llama-3.2-1B-Instruct-q4f32_1-MLC","Qwen2.5-1.5B-Instruct-q4f32_1-MLC","Llama-3.2-3B-Instruct-q4f32_1-MLC"] }
 };
 // Small-vocabulary models — their embedding/output buffers stay well under a tight
 // mobile GPU binding limit (Adreno ~128MB). Large-vocab models (Llama-3.2 128k,
@@ -637,11 +642,10 @@ function gpuDiagStr(){
 // test harness — which passes NO chatOpts — produced text on the same device.
 // We let web-llm use the model's own compiled config.
 function resolve(tier){
-  // The binding-limit/small-vocab theory was disproven on-device (a small-vocab
-  // model faulted identically). The real fault was the chatOpts override + an
-  // intermittent GPU race, now handled by removing the override and retrying.
-  // Use the harness-proven order (Llama-3.2 first); small-vocab models remain as
-  // fallbacks in the lists.
+  // Track A (lever 3): the lists are now ordered SMALL-FIRST (SmolLM2-360M leads Fast),
+  // so the smallest model whose vocab buffer fits under the 128MB binding cap is chosen.
+  // Earlier device runs that "disproved" small-vocab also carried a chatOpts override and
+  // streaming (both since removed), so this is a clean retest of the model-size lever.
   const order=hasF16?[...MODELS[tier].f16,...MODELS[tier].f32]:[...MODELS[tier].f32,...MODELS[tier].f16];
   for(const id of order) if(AVAILABLE.includes(id)) return id;
   return AVAILABLE.find(id=>/q4f32/i.test(id)&&/instruct|chat/i.test(id))||AVAILABLE[0];
