@@ -394,50 +394,40 @@ SAFETY
 
 Keep your replies concise and to the point.`;
 
-/* B-minimal (Checkpoint 0 device audit): normal chat is LEAN — compact identity +
-   light persona + plain memory facts, NO citation mechanics. The full recall/citation
-   block (verifiable [ID:x] grounding) is added ONLY for grounded turns — identity,
-   personal, memory, or provenance questions — decided per-turn in send(). This keeps a
-   1B model un-overloaded for casual chat while preserving Glass Box where it matters. */
-function buildSystemPrompt(grounded){
+/* Per-turn prompt (Checkpoint 0 device audit — small-model tuned).
+   The [ID:x] citation machinery is GONE from the LIVE prompt: a 0.5B model can't "copy an
+   id," it just regurgitated the raw "[ID:..] User's name is Chris" line as its answer. The
+   model now only ever sees PLAIN memory facts and just talks; the spine stays the place
+   trust decisions live (Glass Box tags in logProvenanceFor; the deterministic
+   spine-verified path is the ratifiable way to re-earn a 'grounded' tag without the model
+   citing). Two modes:
+     "identity" → answer AS AUBS; inject NO user memory (Article 12 — "who are you" is AUBS,
+                  never the user's name; this fixes "what's your name" → user's name).
+     "chat"     → lean AUBS + plain memory facts, so it can answer about the user. */
+function promptMode(text){
+  const c = (typeof SPINE!=="undefined" && SPINE) ? SPINE.classify(text) : "general";
+  return c==="identity" ? "identity" : "chat";
+}
+function buildSystemPrompt(mode){
   const persona=(S.aiName||"AUBS").trim();
   const hasPersona = persona && persona.toLowerCase()!=="aubs";
+  const isIdentity = (mode==="identity");
   let p = (typeof SPINE!=="undefined" && SPINE && SPINE.identityPreamble)
-    ? SPINE.identityPreamble(persona, { lean: !grounded })
-    : (grounded
-        ? `You are AUBS, a private on-device AI. Your name is AUBS and never changes. Be honest and say "I don't know" rather than invent facts. Refuse harmful requests, kindly.${hasPersona?` You're styled as "${persona}" — a style only; if asked your name you are still AUBS.`:""}`
+    ? SPINE.identityPreamble(persona, { lean: !isIdentity })
+    : (isIdentity
+        ? `You are AUBS, a private on-device AI. Your name is AUBS and never changes — if asked your name or what you are, answer AUBS, never the user's name.${hasPersona?` You're styled as "${persona}" — a style only; you are still AUBS.`:""}`
         : `You are AUBS, a friendly private on-device AI. Be honest, help with what's asked, and refuse harmful requests kindly.${hasPersona?` Speak in a "${persona}" style.`:""}`);
-  if(S.userName&&S.userName.trim()) p+=` The user's name is ${S.userName.trim()}.`;
+  // user's name + memory only on non-identity turns (identity is about AUBS, not the user)
+  if(!isIdentity && S.userName&&S.userName.trim()) p+=` The user's name is ${S.userName.trim()}.`;
   if(S.tones&&S.tones.length) p+=` Tone: ${S.tones.join(", ")}.`;
-  // Stack order: Identity → Personality → Memory → Custom instructions.
   const parts=[p];
-  if(memories.length){
-    if(grounded){
-      // Grounded: spine supplies the recall block WITH per-fact [ID:x] + a citation
-      // instruction so the model can produce verifiable, relevance-checked citations.
-      const block = (typeof SPINE!=="undefined" && SPINE) ? SPINE.memoryRecallBlock(SPINE.adaptMemories(memories)) : null;
-      if(block){ parts.push(block); }
-      else { parts.push("Known facts about the USER (these describe the user, not you). Use them to answer the user's questions about themselves — e.g. if they ask their own name, answer with the name below. Your own name is still AUBS; do not confuse the two.\n"
-        + memories.map(m=>"- "+m).join("\n")); }
-    } else {
-      // Lean: plain facts only — no citation instruction, no recall governance.
-      parts.push("A few things you know about the user: "+memories.join("; ")+".");
-    }
+  if(!isIdentity && memories.length){
+    parts.push("Things you know about the user (use them to answer questions about the user): "+memories.join("; ")+".");
   }
   if(S.instructions&&S.instructions.trim()){
-    parts.push(grounded
-      ? `Persona flavor (style only — never your identity, your name, or the rules above): ${S.instructions.trim()}`
-      : `Persona style: ${S.instructions.trim()}`);
+    parts.push(`Persona style (style only — never your identity, your name, or the rules): ${S.instructions.trim()}`);
   }
   return parts.join("\n\n");
-}
-/* Decide per-turn whether a query needs Glass Box / citation grounding. Personal,
-   identity, memory, and provenance ("why did you…") questions DO; normal chat does not.
-   Uses the spine's deterministic classifier plus a provenance trigger. */
-function needsGrounding(text){
-  const c = (typeof SPINE!=="undefined" && SPINE) ? SPINE.classify(text) : "general";
-  if(c==="identity" || c==="personal") return true;
-  return /\bwhy did you\b|\bwhy do you\b|\bwhy'?d you\b|\bhow do you know\b|\bwhat do you (remember|know)\b|\bremember about me\b/i.test(text||"");
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -596,7 +586,7 @@ applyAppearance();
 
 // Build marker — lets us confirm on-device exactly which code is live (the service
 // worker can otherwise serve a stale spine.js / HTML). Bump this with each shipped change.
-const BUILD="cp0-devaudit-12 · Qwen2.5-0.5B";
+const BUILD="cp0-devaudit-13 · no-id-echo";
 console.log("[AUBS] build:", BUILD, "· spine:", (typeof SPINE!=="undefined"&&SPINE)?SPINE.SPINE_VERSION:"NOT LOADED");
 (function(){ const el=document.getElementById('buildTag'); if(el) el.textContent=BUILD+(typeof SPINE!=="undefined"&&SPINE?(" · spine "+SPINE.SPINE_VERSION):" · spine MISSING"); })();
 
@@ -714,10 +704,9 @@ window.send=async function(){
   thread.appendChild(aiWrap); const bubble=aiWrap.querySelector('.bubble'); thread.scrollTop=thread.scrollHeight; sendBtn.disabled=true;
   let full=""; let finish=""; let fatalErr=null;
   const t0=(window.performance&&performance.now)?performance.now():0;
-  // B-minimal: build THIS turn's system prompt — lean for normal chat, grounded
-  // (citation/recall block) only for identity/personal/provenance questions.
-  const grounded=needsGrounding(text);
-  history[0]={ role:"system", content: buildSystemPrompt(grounded) };
+  // Build THIS turn's system prompt: "identity" (answer as AUBS, no user memory) for
+  // who-are-you questions, else "chat" (lean AUBS + plain memory facts, no [ID:]).
+  history[0]={ role:"system", content: buildSystemPrompt(promptMode(text)) };
   const sent=contextMessages();                  // exact messages sent to the model (logged in provenance)
   // Recoverable runtime faults: mobile WebGPU can lose/dispose the engine, after which
   // calls report "Model not loaded". We recreate from cache and retry once (see below).
