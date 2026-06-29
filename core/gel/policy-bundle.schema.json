@@ -1,0 +1,46 @@
+{
+  "$id": "aubs/gel/policy-bundle",
+  "title": "GEL Policy Bundle v0.1",
+  "description": "A deterministic JSON policy bundle the GEL evaluates a CAC Plan against. Not full Cedar yet; a simple, rigid, fail-closed rule format.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["bundle_id", "bundle_version", "require_explicit_allow", "policies"],
+  "properties": {
+    "bundle_id":             { "type": "string" },
+    "bundle_version":        { "type": "string" },
+    "created_at":            { "type": "string", "format": "date-time" },
+    "require_explicit_allow":{ "type": "boolean" },
+    "policies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["policy_id", "precedence_level", "effect", "enabled", "reason", "match"],
+        "properties": {
+          "policy_id":        { "type": "string" },
+          "precedence_level": { "enum": ["regulatory", "org", "group", "user", "default"] },
+          "effect":           { "enum": ["allow", "deny", "modify", "require_reauth"] },
+          "enabled":          { "type": "boolean" },
+          "reason":           { "type": "string" },
+          "match": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "step_type":              { "enum": ["memory_read", "retrieve", "model_call", "tool_call", "deterministic_answer", "refusal"] },
+              "step_type_in":           { "type": "array", "items": { "enum": ["memory_read", "retrieve", "model_call", "tool_call", "deterministic_answer", "refusal"] } },
+              "provider_id":            { "type": "string" },
+              "provider_id_in":         { "type": "array", "items": { "type": "string" } },
+              "egress":                 { "enum": ["none", "redacted", "full"] },
+              "egress_in":              { "type": "array", "items": { "enum": ["none", "redacted", "full"] } },
+              "max_egress":             { "enum": ["none", "redacted", "full"] },
+              "data_classification":    { "enum": ["public", "personal", "sensitive"] },
+              "data_classification_in": { "type": "array", "items": { "enum": ["public", "personal", "sensitive"] } },
+              "local_only":             { "type": "boolean" },
+              "requires_user_approval": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

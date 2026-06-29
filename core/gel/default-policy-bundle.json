@@ -1,0 +1,32 @@
+{
+  "bundle_id": "aubs-default",
+  "bundle_version": "0.1",
+  "created_at": "2026-06-29T00:00:00Z",
+  "require_explicit_allow": false,
+  "policies": [
+    {
+      "policy_id": "org-deny-sensitive-egress",
+      "precedence_level": "org",
+      "effect": "deny",
+      "enabled": true,
+      "reason": "Sensitive data may not leave the device.",
+      "match": { "data_classification": "sensitive", "egress_in": ["redacted", "full"] }
+    },
+    {
+      "policy_id": "org-reauth-on-full-egress",
+      "precedence_level": "org",
+      "effect": "require_reauth",
+      "enabled": true,
+      "reason": "Sending full (un-redacted) data off-device requires re-authentication.",
+      "match": { "egress": "full", "data_classification_in": ["public", "personal"] }
+    },
+    {
+      "policy_id": "default-allow-local",
+      "precedence_level": "default",
+      "effect": "allow",
+      "enabled": true,
+      "reason": "Local, on-device execution is allowed by default.",
+      "match": {}
+    }
+  ]
+}
