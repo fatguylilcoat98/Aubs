@@ -38,7 +38,8 @@
     FLAG_SPINE_VERIFIED_GROUNDING: false,// CANDIDATE Article 3a amendment (see verifyGrounding)
     FLAG_SPINE_GROUNDING_V2: false,      // CANDIDATE Article 3a amendment v2 (semantic fit: query-gated + object disambiguation + value-verified tier)
     FLAG_LEDGER: false,                  // Milestone 0: write tamper-evident DecisionRecords (spine/ledger.js)
-    FLAG_IDENTITY_V2: false              // Slice 0 CANDIDATE Article 12 v2: identity is APP-declared + OS-owned, never model-originated
+    FLAG_IDENTITY_V2: false,             // Slice 0 CANDIDATE Article 12 v2: identity is APP-declared + OS-owned, never model-originated
+    FLAG_GOVERNED_FACTS: false           // Migration A1: governed-fact registry + classifier (core/facts/*). Default OFF = byte-identical (every turn routes to the model).
   };
   function activeFlags() {
     return Object.keys(FLAGS).filter(function (k) { return FLAGS[k] === true; });
@@ -979,7 +980,10 @@
   function greetingAnswer(persona, style, entries) {
     var live = liveEntries(entries || []), name = null;
     for (var i = 0; i < live.length; i++) { var m = live[i].content.match(/^User's name is (.+?)[.?!]?$/i); if (m) { name = m[1]; break; } }
-    return styleWrap("Hey" + (name ? (", " + name) : "") + "! I'm " + SYSTEM_IDENTITY.name_default + ", here and ready. What's up?", style, "greeting");
+    // The greeting embeds an identity claim — it must use the resolved assistant name (persona),
+    // never a hard-coded "AUBS". Falls back to AUBS only when no name is declared (bare OS).
+    var who = (persona && String(persona).trim()) ? String(persona).trim() : SYSTEM_IDENTITY.name_default;
+    return styleWrap("Hey" + (name ? (", " + name) : "") + "! I'm " + who + ", here and ready. What's up?", style, "greeting");
   }
 
   /* Narrow output cleanup for MODEL answers only. Removes false self-identity / boilerplate
