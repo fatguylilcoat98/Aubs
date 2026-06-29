@@ -73,6 +73,21 @@ const IDS = { intent_id: "i", plan_id: "p", created_at: "2026-06-29T00:00:00Z" }
   ok("ledger VERIFIES after flagged constitutional chat (" + v.count + " records, signed)", v.ok === true && v.count === 4);
   ok("exactly one record per turn (4 turns → 4 records — no double-writes)", v.count === 4);
 
+  // ── MEMORY-FIRST (§7): a stored personal fact is answered model 0× through the pipeline ──
+  {
+    const mstore = L.createMemoryStore();
+    let memGen = okGen("SHOULD NOT BE CALLED");
+    let memEntries = [{ id: "m1", content: "User lives in Denver", user_verified: true, superseded_by: null }];
+    let ms = await CHAT.runConstitutionalChat({ text: "where do I live?", generate: memGen, model_id: "Qwen2.5-0.5B-Instruct", ledgerStore: mstore, signingKey: key.privateKey, governedFacts: true, memoryEntries: memEntries, intent_id: "im1", plan_id: "pm1", created_at: IDS.created_at });
+    ok("memory-first: stored fact answered FROM memory, model called 0×", memGen.calls() === 0 && ms.ui.text === "You live in Denver.");
+    ok("memory-first: recorded as a governed_fact (user_profile), no model/provider",
+      ms.record && ms.record.execution_type === "governed_fact" && ms.governed_fact && ms.governed_fact.fact_id === "user_profile");
+    // an UNKNOWN personal fact must NOT be invented — the runtime answers honestly, model 0×
+    let mg2 = okGen("Your imaginary answer.");
+    let ms2 = await CHAT.runConstitutionalChat({ text: "what do you know about me?", generate: mg2, model_id: "Qwen2.5-0.5B-Instruct", ledgerStore: mstore, signingKey: key.privateKey, governedFacts: true, memoryEntries: [], intent_id: "im2", plan_id: "pm2", created_at: IDS.created_at });
+    ok("memory-first: empty memory → honest 'I don't know anything about you yet', model 0×", mg2.calls() === 0 && /don't know anything about you yet/i.test(ms2.ui.text));
+  }
+
   // ── flag OFF (by construction): the module runs ONLY when called ───────────────────
   ok("flag-OFF safety: chat path is inert until runConstitutionalChat is called (pure module)", typeof CHAT.runConstitutionalChat === "function" && typeof CHAT.buildChatEnv === "function");
 

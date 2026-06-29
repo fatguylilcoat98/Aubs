@@ -35,7 +35,7 @@ USER TURN
   4. Governed-Fact Registry ... runtime OWNS the answer? → answer, model 0×  ✅ core/facts (expand §2)
   5. Reality Context .......... date/time/location/device — runtime truth    ☐ (§5)
   6. Deterministic Responders . greeting/thanks/math/units/commands          ◑ spine.routeQuery (expand §6)
-  7. Memory-First Answer ...... answer in owned memory? → answer, model 0×    ◑ (§7)
+  7. Memory-First Answer ...... answer in owned memory? → answer, model 0×    ✅ recall (§7)
   8. Reasoning Permission ..... is the model even allowed to answer?          ✅ core/trust
   9. Context Assembly ......... build the tiered context the model will see   ◑ (§4 — Splendor pattern)
  10. Model Selection ......... cheapest capable enabled model                 ◑ eligibility
@@ -188,7 +188,16 @@ where it adds warmth, plain where it adds clarity. The more here, the fewer mode
 When the user's question maps to a stored, permitted memory fact, answer it **deterministically
 from memory** (model 0×, self-verifiable, provenance-tagged) instead of sending it to the model.
 "What do you know about me?" / "where do I live?" → recalled from owned memory, not improvised.
-Requires wiring the typed memory store into the pre-model path (the current gap). ◑
+
+**Shipped ✅** (`core/facts/registry.js` → `recall(q, entries)`, wired into the governed-fact gate on
+BOTH live paths — inline `window.send` and the constitutional pipeline). It: (1) broadens recall
+detection beyond the spine's set ("do you remember my…", "what's my…", "remind me…"); (2)
+**disambiguates** the match so "favorite color" can never return "favorite food"; (3) lists
+everything for "what do you know about me"; (4) is **honest** on a real miss ("I don't know that
+about you yet") instead of letting the model invent a personal fact; and (5) **falls through** on an
+*ambiguous* miss so the model still handles it (never a dead-end). On the pipeline path each recall
+is a `governed_fact` Trust Record (model 0×). Flag-gated by `FLAG_GOVERNED_FACTS` (OFF →
+byte-identical). Tests: `run-memory-recall` (15/15) + end-to-end in `run-constitution-chat`.
 
 ---
 
@@ -222,7 +231,8 @@ The product is the runtime. The model is a rented voice.
 1. **Reality Context governed facts** (date/time/locale) ☐ — easy, kills the date hallucination, on-thesis.
 2. **Persona System v1** ☐ — structured persona state + compiled injection + persona guard. The "personality stuff."
 3. **Speaker-label consistency** ☐ — assistant name shown consistently (the AUBS↔Trump flip).
-4. **Memory-first answering** ◑ — wire the typed memory store into the pre-model path.
+4. **Memory-first answering** ✅ — owned memory wired into the pre-model path (registry `recall`):
+   stored personal facts answered model 0×, disambiguated, honest on a miss, with a Trust Record.
 5. **Deterministic responders expansion** ◑ — more intents handled model-0×.
 6. **Context assembler port** (Splendor tiers) ◑ — scaffold the model turns.
 7. **Output guard suite** (persona + fact-injection) ☐.

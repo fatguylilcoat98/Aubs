@@ -94,6 +94,52 @@
     return (h % 12 || 12) + ":" + (m < 10 ? "0" + m : m) + " " + (h < 12 ? "AM" : "PM") + " UTC";
   }
 
+  // ── MEMORY-FIRST RECALL (architecture doc §7) ────────────────────────────────────────────────
+  // If the user's question maps to a stored, owned memory, answer it deterministically FROM memory
+  // (model 0×) instead of letting the model improvise a personal fact. Broadens the spine's memory
+  // detection, disambiguates the match (so "favorite color" can't return "favorite food"), lists
+  // everything for "what do you know about me", and is HONEST when it genuinely doesn't know.
+
+  // Broad recall detection: the spine's set PLUS "do you remember/know my…", "what did I tell you",
+  // "what's/was my X", "remind me … my …", "do/did I like/own…".
+  function isRecallQuery(q) {
+    var s = String(q || "");
+    if (SPINE.isMemoryQuery && SPINE.isMemoryQuery(s)) return true;
+    return /\bdo you (?:remember|know|recall)\b[^?]*\bmy\b/i.test(s)
+        || /\bwhat did i (?:tell|say to|say)\s+you\b/i.test(s)
+        || /\bwhat(?:'?s| is| was)\s+my\b/i.test(s)
+        || /\bremind me\b[^?]*\bmy\b/i.test(s)
+        || /\b(?:do|did)\s+i\s+(?:like|love|enjoy|have|own|prefer)\b/i.test(s);
+  }
+  // Conservative subset: phrasings where an UNMATCHED recall is honestly "I don't know that about
+  // you yet" (clearly a question about the user). Broader phrasings fall through to the model on a miss.
+  function isConservativeRecall(q) {
+    var s = String(q || "");
+    return (SPINE.isMemoryQuery && SPINE.isMemoryQuery(s))
+        || /\bdo you (?:remember|know|recall)\b[^?]*\bmy\b/i.test(s)
+        || /\bwhat do you (?:know|remember) about me\b/i.test(s);
+  }
+  function liveMems(entries) {
+    return (entries || []).filter(function (e) { return e && e.content && (e.superseded_by == null); });
+  }
+  // recall(q, entries) -> { answer, memory_id?|memory_ids?, miss? } | null
+  function recall(q, entries) {
+    if (!isRecallQuery(q)) return null;
+    var live = liveMems(entries);
+    if (/\bwhat do you (?:know|remember) about me\b/i.test(q)) {
+      if (!live.length) return { answer: "I don't know anything about you yet — tell me and I'll remember.", miss: true };
+      var facts = live.map(function (e) { return SPINE.userFactToSecondPerson(e.content).replace(/[.?!]$/, ""); });
+      return { answer: "Here's what I know about you: " + facts.join("; ") + ".", memory_ids: live.map(function (e) { return e.id; }) };
+    }
+    for (var i = 0; i < live.length; i++) {
+      if (SPINE.relevanceCheck(q, live[i].content, { disambiguate: true }).relevant) {
+        return { answer: SPINE.userFactToSecondPerson(live[i].content).replace(/[.?!]$/, "") + ".", memory_id: live[i].id };
+      }
+    }
+    if (isConservativeRecall(q)) return { answer: "I don't know that about you yet — tell me and I'll remember.", miss: true };
+    return null;   // ambiguous + no match → let the model handle it (not a dead-end)
+  }
+
   function capabilityStatement(ctx) {
     var caps = ctx && ctx.runtime && ctx.runtime.capabilities;
     if (caps && caps.length) {
@@ -188,24 +234,19 @@
       }
     },
 
-    // 5) USER PROFILE / MEMORY — "what you know about me". User-name queries are
-    //    already taken by identity above; this catches the rest.
+    // 5) USER PROFILE / MEMORY — MEMORY-FIRST answering. "What you know about me", "where do I
+    //    live", "what's my favorite color", "do you remember my…" → answered deterministically
+    //    from owned memory (model 0×), disambiguated, honest when unknown. User-name queries are
+    //    already taken by identity above; this catches the rest. Falls through (null) on an
+    //    ambiguous miss so the model can still handle it — never a dead-end.
     {
       id: "user_profile",
-      owner: "memory engine (spine:recallMemory)",
+      owner: "memory engine (recall · model 0×)",
       modelMayOriginate: false,
       match: function (q, ctx) {
-        if (!SPINE.isMemoryQuery || !SPINE.isMemoryQuery(q)) return null;
-        var entries = (ctx && ctx.entries) || [];
-        var r = SPINE.recallMemory(q, entries);
-        if (!r) return { answer: "I don't know that about you yet — tell me and I'll remember." };
-        if (r.all) {
-          var facts = r.entries.map(function (e) {
-            return SPINE.userFactToSecondPerson(e.content).replace(/[.?!]$/, "");
-          });
-          return { answer: "Here's what I know about you: " + facts.join("; ") + "." };
-        }
-        return { answer: SPINE.userFactToSecondPerson(r.entry.content).replace(/[.?!]$/, "") + "." };
+        var r = recall(q, (ctx && ctx.entries) || []);
+        if (!r) return null;
+        return { answer: r.answer, factId: "user_profile" };
       }
     }
   ];
@@ -220,6 +261,8 @@
     isTimeQuery: isTimeQuery,
     fmtDateUTC: fmtDateUTC,
     fmtTimeUTC: fmtTimeUTC,
+    isRecallQuery: isRecallQuery,
+    recall: recall,
     capabilityStatement: capabilityStatement
   };
   if (typeof module !== "undefined" && module.exports) module.exports = API;

@@ -98,6 +98,9 @@
       // Default reads FLAG_GOVERNED_FACTS in the pipeline; runtime carries version/creator metadata.
       governedFacts: opts.governedFacts,
       runtime: opts.runtime || null,
+      // Memory-first (§7): owned memories the governed-fact gate uses to answer stored personal
+      // facts (where do I live / what do you know about me) deterministically, model 0×.
+      memoryEntries: opts.memoryEntries || null,
       // Trust OS wire-up: emit a validated Trust Record (FLAG_TRUST_OS). publicKey upgrades the
       // Integrity proof to a full offline chain re-verify.
       trustOS: opts.trustOS,
