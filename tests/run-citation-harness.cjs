@@ -53,7 +53,7 @@ for (const scn of gs.scenarios) {
 
   for (const s of synthAnswers(entries, ids, expected_id)) {
     const outcome = SPINE.classifyCitation({ answer: s.answer, memory_ids_in_prompt: ids, entries: entries, expected_id: expected_id });
-    let r = SPINE.tagAnswer({ answer: s.answer, memory_ids_in_prompt: ids, entries: entries, classification: classification, conflict: conflict });
+    let r = SPINE.tagAnswer({ answer: s.answer, query: scn.prompt, memory_ids_in_prompt: ids, entries: entries, classification: classification, conflict: conflict });
     let tag = r.tag;
     if (!SPINE.dangerFactCheck(s.answer).ok) tag = "unknown";
     tally[outcome] = (tally[outcome] || 0) + 1;

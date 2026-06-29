@@ -36,6 +36,7 @@
     // Control flags (Article 6), default OFF. Dogfood/diagnostic only.
     FLAG_TRACE_VERBOSE: false,           // expose the full per-turn trace in the app
     FLAG_SPINE_VERIFIED_GROUNDING: false,// CANDIDATE Article 3a amendment (see verifyGrounding)
+    FLAG_SPINE_GROUNDING_V2: false,      // CANDIDATE Article 3a amendment v2 (semantic fit: query-gated + object disambiguation + value-verified tier)
     FLAG_LEDGER: false                   // Milestone 0: write tamper-evident DecisionRecords (spine/ledger.js)
   };
   function activeFlags() {
@@ -287,7 +288,22 @@
     { intent: "likes",    q: /\b(what do i like|my favou?rite|do i (like|love|enjoy))\b/,                       m: /\b(like|likes|love|loves|favou?rite|enjoy|enjoys|prefers?)\b/ }
   ];
   var REL_STOP = { the:1,a:1,an:1,is:1,are:1,do:1,does:1,did:1,i:1,me:1,my:1,mine:1,you:1,your:1,what:1,where:1,when:1,who:1,how:1,why:1,of:1,to:1,in:1,on:1,for:1,and:1,or:1,about:1,tell:1,know:1,remember:1,whats:1,was:1 };
-  function relevanceCheck(query, content) {
+  // Verified Grounding v2 (Layer 2): deterministic object extractor — the noun the query
+  // asks ABOUT, for coarse slots. "what's my favorite color" -> "color"; specific slots -> null.
+  function extractQueryObject(query, intent) {
+    var q = String(query || "").toLowerCase();
+    if (intent === "likes") {
+      var m = q.match(/favou?rite\s+([a-z]+)/);
+      if (m) return m[1];
+      var m2 = q.match(/\bdo i (?:like|love|enjoy)\s+([a-z]+)/);
+      if (m2) return m2[1];
+    }
+    return null;   // specific slots are already disambiguated by their pattern
+  }
+  // opts.disambiguate (v2): for object-bearing slots, the memory must mention the query's
+  // object noun (closes the same-slot cross-grounding hole: "favorite color" vs "favorite food").
+  function relevanceCheck(query, content, opts) {
+    opts = opts || {};
     var q = String(query || "").toLowerCase();
     var c = String(content || "").toLowerCase();
     if (!q) return { relevant: false, basis: "no-query" };
@@ -295,8 +311,13 @@
       var s = REL_SLOTS[i];
       if (s.q.test(q)) {
         // Known query intent: the cited memory must match that intent's content.
-        return s.m.test(c) ? { relevant: true, basis: "slot:" + s.intent }
-                           : { relevant: false, basis: "slot-miss:" + s.intent };
+        if (!s.m.test(c)) return { relevant: false, basis: "slot-miss:" + s.intent };
+        if (opts.disambiguate === true) {
+          var obj = extractQueryObject(q, s.intent);
+          if (obj && c.indexOf(obj) < 0) return { relevant: false, basis: "object-miss:" + s.intent + ":" + obj };
+          return { relevant: true, basis: "slot:" + s.intent + (obj ? ":" + obj : "") };
+        }
+        return { relevant: true, basis: "slot:" + s.intent };
       }
     }
     // No known intent -> require keyword overlap between query and memory.
@@ -340,21 +361,57 @@
     // Relevance is enforced when opts.query is provided; if no query is given we
     // cannot verify relevance, so (conservatively) nothing grounds.
     var groundable = validCited;
-    if (opts.query != null && opts.query !== "") {
-      groundable = validCited.filter(function (id) { return relevanceCheck(opts.query, byId[id].content).relevant; });
-    } else if (opts.requireRelevance === true) {
-      groundable = [];
+    if (FLAGS.FLAG_SPINE_GROUNDING_V2 === true) {
+      // === Verified Grounding v2 (CANDIDATE Article 3a amendment, flag-gated) ===
+      // Layer 1: grounding REQUIRES a query (default fail-closed; no query -> no ground).
+      // Layer 2: relevance uses object disambiguation (relevanceCheck disambiguate:true).
+      // Layer 3 (conservative): only the value_verified tier displays as 'grounded';
+      //   a merely topic_relevant citation downgrades to 'inferred'. The tier + basis are
+      //   returned so the Glass Box never shows a weak match identically to a strong one.
+      var requireRelV2 = (opts.requireRelevance !== false);
+      if (opts.query != null && opts.query !== "") {
+        groundable = validCited.filter(function (id) { return relevanceCheck(opts.query, byId[id].content, { disambiguate: true }).relevant; });
+      } else if (requireRelV2) {
+        groundable = [];
+      }
+      var valueVerified = groundable.filter(function (id) { return groundingStrength(opts.answer, byId[id], opts.query) === "value_verified"; });
+      if (valueVerified.length > 0) {
+        return { tag: "grounded", memory_ids_cited: valueVerified, grounded_on: valueVerified, grounding_strength: "value_verified", relevance_basis: relevanceCheck(opts.query, byId[valueVerified[0]].content, { disambiguate: true }).basis };
+      }
+      if (cited.length > 0) return { tag: "inferred", memory_ids_cited: [], grounding_strength: groundable.length ? "topic_relevant" : null };
+      // else fall through to the shared no-citation tail
+    } else {
+      // === Article 3a (RATIFIED) — unchanged when the v2 flag is off ===
+      if (opts.query != null && opts.query !== "") {
+        groundable = validCited.filter(function (id) { return relevanceCheck(opts.query, byId[id].content).relevant; });
+      } else if (opts.requireRelevance === true) {
+        groundable = [];
+      }
+      if (groundable.length > 0) return { tag: "grounded", memory_ids_cited: groundable };
+      if (cited.length > 0) return { tag: "inferred", memory_ids_cited: [] }; // cited but unverifiable/irrelevant -> downgrade
     }
 
-    if (groundable.length > 0) return { tag: "grounded", memory_ids_cited: groundable };
-    if (cited.length > 0) return { tag: "inferred", memory_ids_cited: [] }; // cited but unverifiable/irrelevant -> downgrade
-
-    // No citation:
+    // No citation (shared tail):
     if (opts.classification === "identity") return { tag: "general", memory_ids_cited: [] }; // from system identity
     if (opts.classification === "personal") {
       return { tag: liveEntries(opts.entries).length ? "inferred" : "unknown", memory_ids_cited: [] };
     }
     return { tag: "general", memory_ids_cited: [] };
+  }
+  // Verified Grounding v2 (Layer 3): the grounding tier for one memory vs the answer.
+  //   "value_verified" — relevant (disambiguated) AND the answer states the memory's value
+  //                      (substring), negation-guarded; "topic_relevant" — relevant only;
+  //   null — not relevant. Deterministic, model-free, conservative.
+  function groundingStrength(answer, memory, query) {
+    if (!memory || !relevanceCheck(query, memory.content, { disambiguate: true }).relevant) return null;
+    var val = extractMemoryValue(memory.content).toLowerCase();
+    var lc = String(answer || "").toLowerCase();
+    var idx = val.length >= 2 ? lc.indexOf(val) : -1;
+    if (idx >= 0) {
+      var pre = lc.slice(Math.max(0, idx - 18), idx);
+      if (!/\b(not|isn'?t|aren'?t|don'?t|never|no longer|wrong)\b/.test(pre)) return "value_verified";
+    }
+    return "topic_relevant";
   }
 
   /* ===========================================================================
@@ -555,6 +612,7 @@
       memory_ids_cited: o.memory_ids_cited || [],
       tag: o.tag || "unknown",
       grounding_source: o.grounding_source || null,   // 'model_cited' | 'spine_verified' (candidate) | null
+      grounding_strength: o.grounding_strength || null, // v2 (candidate): 'value_verified' | 'topic_relevant' | null
       tier_used: o.tier_used || "low",
       flags_active: o.flags_active || [],
       source_of_answer: o.source_of_answer || "model",
@@ -788,6 +846,8 @@
     relevanceCheck: relevanceCheck,
     // CANDIDATE Article 3a amendment (gated by FLAG_SPINE_VERIFIED_GROUNDING; not law)
     verifyGrounding: verifyGrounding,
+    // CANDIDATE Article 3a amendment v2 (gated by FLAG_SPINE_GROUNDING_V2; not law)
+    groundingStrength: groundingStrength, extractQueryObject: extractQueryObject,
     // Art 3 + Glass Box
     makeProvenance: makeProvenance, logProvenance: logProvenance,
     lastProvenance: lastProvenance, allProvenance: allProvenance, glassBox: glassBox
