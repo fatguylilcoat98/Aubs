@@ -45,6 +45,7 @@
 
     var result = null, failure = null, status, kind;
     var eligibility = null, selectedProvider = null;   // M6: set only on the governed provider path
+    var selectedProviderMeta = null;                   // M8: provider response metadata (no secrets)
 
     if (governance.decision !== "allow") {
       // 4) blocked — NO adapter call. deny/modify/require_reauth all block in M3.
@@ -75,6 +76,7 @@
         } else {
           selectedProvider = eligibility.eligible_providers[0];
           var pout = await options.providerRegistry.runGuarded(selectedProvider.provider_id, plan, { intent: intent });   // Drift Shield in the loop
+          selectedProviderMeta = (pout && pout.metadata) || null;   // request_id, http_status, finish_reason, usage — NEVER secrets
           if (pout && pout.ok) {
             kind = "executed"; status = "ok";
             result = CAC.builders.buildResult(intent, plan, { result_id: O.result_id, created_at: O.created_at, status: "ok", output_text: pout.output_text || "", model_id: pout.model_id || "provider-model", provider_id: pout.provider_id || selectedProvider.provider_id, grounding: pout.grounding });
@@ -124,7 +126,14 @@
         provider_id: providerId, provider_type: providerType,
         eligible_count: eligibility ? eligibility.summary.eligible_count : null,
         eligibility_reason: eligibility ? eligibility.summary.reason : null,
-        rejected_providers: eligibility ? eligibility.rejected.map(function (r) { return { provider_id: r.provider_id, reasons: r.reasons }; }) : null
+        rejected_providers: eligibility ? eligibility.rejected.map(function (r) { return { provider_id: r.provider_id, reasons: r.reasons }; }) : null,
+        // M8 outbound trail — payload classification, egress, model, LOCAL request id, response
+        // metadata (http status / finish_reason / usage). NO secrets, NO keys, NO auth headers.
+        payload_classification: (intent.constraints && intent.constraints.data_classification) || null,
+        egress_level: leftDevice ? (function () { var m = "none"; (plan.steps || []).forEach(function (st) { if (st.egress && st.egress !== "none") m = st.egress; }); return m; })() : "none",
+        model_name: result ? (result.model_id || null) : null,
+        request_id: selectedProviderMeta ? (selectedProviderMeta.request_id || null) : null,
+        response_metadata: selectedProviderMeta ? { http_status: selectedProviderMeta.http_status != null ? selectedProviderMeta.http_status : null, finish_reason: selectedProviderMeta.finish_reason != null ? selectedProviderMeta.finish_reason : null, usage: selectedProviderMeta.usage || null } : null
       },
       policy_version: governance.policy_bundle_hash
     };
