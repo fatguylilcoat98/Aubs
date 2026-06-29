@@ -163,8 +163,11 @@
     // creator/capabilities/version/identity (identity delegated to the spine's one
     // router). identityRoute is reachable only THROUGH this gate, so it can never be
     // the first handler and can never over-capture creator/capability questions.
-    // user_profile is deferred to the memory stage (excluded here). When this fires,
-    // the model is called 0×. OFF → skipped entirely (byte-identical; 4b runs instead).
+    // MEMORY-FIRST (§7): user_profile is NO LONGER excluded — owned memories are handed in so a
+    // stored personal fact ("where do I live", "what do you know about me") is answered model 0×
+    // here, with a real Trust Record, before the model. An ambiguous miss falls through to the
+    // model (the registry returns null), so this is never a dead-end.
+    // When this fires, the model is called 0×. OFF → skipped entirely (byte-identical; 4b runs instead).
     var governedFacts = (options.governedFacts !== undefined) ? !!options.governedFacts
                       : !!(SPINE && SPINE.FLAGS && SPINE.FLAGS.FLAG_GOVERNED_FACTS);
     var trustOS = (options.trustOS !== undefined) ? !!options.trustOS
@@ -175,7 +178,7 @@
         : null;
       state.resolvedIdentity = gResolved;
       var gres = GATE.governedFactGate(request.user_text || "", {
-        resolved: gResolved, runtime: options.runtime || null, entries: [], exclude: ["user_profile"], enabled: true
+        resolved: gResolved, runtime: options.runtime || null, entries: options.memoryEntries || [], enabled: true
       });
       if (gres.handled) {
         var GRI = gResolved || {};

@@ -1091,7 +1091,7 @@ window.send=async function(){
   // the creator/runtime metadata flows through one path. (Also lets "what do you know about me"
   // reach the pipeline memory stage instead of a dead-end.)
   const useInlineGovernedFacts = governedFactsOn() && !(constitutionChatOn() && trustOsOn());
-  const gf=(!gate.blocked && useInlineGovernedFacts)?window.AUBS_FACT_GATE.governedFactGate(text,{ resolved:governedFactResolved(), runtime:aubsRuntimeMetaFull(), exclude:["user_profile"], enabled:true }):{handled:false};
+  const gf=(!gate.blocked && useInlineGovernedFacts)?window.AUBS_FACT_GATE.governedFactGate(text,{ resolved:governedFactResolved(), runtime:aubsRuntimeMetaFull(), entries:routerEntries, enabled:true }):{handled:false};
   const RECOVERABLE=/GPUBuffer|mapAsync|unmapped|device is lost|Device is lost|disposed|not loaded|reload\(/i;
   try{
     if(gate.blocked){
@@ -1308,7 +1308,10 @@ async function runModelTurnThroughConstitution(text, sent, bubble, aiWrap, t0, r
       userPersonaName:(S&&S.aiName)||null,
       // Trust OS (FLAG_TRUST_OS / ?trust=1): emit a validated Trust Record + Glass Box line.
       // publicKey upgrades Integrity to a full offline chain re-verify; runtime carries creator/version.
-      trustOS:trustOsOn(), publicKey:(c&&c.keys)?c.keys.publicKey:null, runtime:aubsRuntimeMetaFull()
+      trustOS:trustOsOn(), publicKey:(c&&c.keys)?c.keys.publicKey:null, runtime:aubsRuntimeMetaFull(),
+      // Memory-first (§7): owned memories handed to the governed-fact gate so stored personal facts
+      // are answered model 0× (with a Trust Record) before the model is ever consulted.
+      memoryEntries:routerEntries
       // bundle omitted → pipeline uses the default-allow-local bundle (local chat is allowed)
     });
   }catch(e){
