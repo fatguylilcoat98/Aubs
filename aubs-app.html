@@ -576,6 +576,45 @@ function aubsRuntimeMetaFull(){
   return meta;
 }
 
+/* ── Persona System v1 — FLAG_PERSONA (default OFF) ──────────────────────────────────
+   When ON, the runtime OWNS who the assistant is being: a structured persona is resolved
+   deterministically and compiled into a system instruction (Tier-1 injection) that the model
+   PERFORMS, and a persona guard strips model-identity / "as an AI language model" leaks from
+   the output. The compiled persona states explicitly that safety/truth/governed-facts OUTRANK
+   it and that it never changes the FACTS — persona governs STYLE only. OFF → nothing runs and
+   the prompt is byte-identical to today. Enable per-session: ?persona=1 (default persona),
+   ?persona=coach / ?persona=friend (pick a built-in), or ?persona=<free text> (a style note).
+   ?persona=0 disables. */
+let FLAG_PERSONA=false, PERSONA_SEL=null;   // PERSONA_SEL: null → default 'aubs'; else id or free-text
+try{
+  const qp=new URLSearchParams(location.search);
+  const pv=qp.get('persona');
+  const stored=localStorage.getItem('aubs_persona');
+  if(pv==='0'){ FLAG_PERSONA=false; try{ localStorage.removeItem('aubs_persona'); }catch(_){} }
+  else if(pv!==null && pv!==''){ FLAG_PERSONA=true; PERSONA_SEL=(pv==='1')?null:pv; try{ localStorage.setItem('aubs_persona', PERSONA_SEL||'1'); }catch(_){} }
+  else if(stored){ FLAG_PERSONA=true; PERSONA_SEL=(stored==='1')?null:stored; }
+}catch(e){}
+function personaOn(){ return !!(FLAG_PERSONA && typeof window!=="undefined" && window.AUBS_PERSONA && window.AUBS_PERSONA.compilePersona); }
+// Resolve the active persona deterministically: an explicit selection (built-in id or free text),
+// else the user's own style note (S.instructions), else the default. The model never invents one.
+function activePersona(){
+  if(!personaOn()) return null;
+  try{
+    var sel = PERSONA_SEL || (typeof S!=="undefined" && S && S.instructions && S.instructions.trim()) || null;
+    return window.AUBS_PERSONA.resolvePersona(sel || undefined);
+  }catch(e){ return null; }
+}
+// Compiled persona instruction for Tier-1 injection (empty string when off → byte-identical prompt).
+function compiledPersona(){
+  if(!personaOn()) return "";
+  try{ var p=activePersona(); return p ? (window.AUBS_PERSONA.compilePersona(p, resolvedIdentity()||undefined) || "") : ""; }catch(e){ return ""; }
+}
+// Post-generation persona guard (no-op when off). Strips model-identity / AI-disclaimer leaks.
+function personaGuardOut(text){
+  if(!personaOn()) return text;
+  try{ return window.AUBS_PERSONA.personaGuard(text, activePersona())||text; }catch(e){ return text; }
+}
+
 /* ── Milestone 0 — Ledger wiring (additive, behind FLAG_LEDGER) ──────────────────
    When ON, every provenance record is ALSO appended to a real append-only, hash-chained,
    Ed25519-signed IndexedDB ledger. When OFF, none of this runs. A device key is generated
@@ -707,9 +746,14 @@ function buildSystemPrompt(mode){
   if(!isIdentity && memories.length){
     parts.push("Things you know about the user (use them to answer questions about the user): "+memories.join("; ")+".");
   }
-  if(S.instructions&&S.instructions.trim()){
+  // Persona System v1 (FLAG_PERSONA): when ON, the runtime-owned persona is compiled in and
+  // FOLDS IN the free-text style note (so we don't state it twice); when OFF, the original
+  // raw style-note line is used and the prompt is byte-identical to before.
+  const _personaOn = (typeof personaOn==="function") && personaOn();
+  if(S.instructions&&S.instructions.trim() && !_personaOn){
     parts.push(`Persona style (style only — never your identity, your name, or the rules): ${S.instructions.trim()}`);
   }
+  if(_personaOn){ const cp=compiledPersona(); if(cp) parts.push(cp); }
   return parts.join("\n\n");
 }
 
@@ -883,7 +927,9 @@ console.log("[AUBS] build:", BUILD, "· spine:", (typeof SPINE!=="undefined"&&SP
   if(typeof FLAG_GOVERNED_FACTS!=="undefined"&&FLAG_GOVERNED_FACTS) fl.push("facts");
   if(typeof FLAG_TRUST_OS!=="undefined"&&FLAG_TRUST_OS) fl.push("trust");
   if(typeof SPINE!=="undefined"&&SPINE&&SPINE.FLAGS&&SPINE.FLAGS.FLAG_IDENTITY_V2) fl.push("identity");
-  el.textContent=BUILD+sp+tos+" · flags: "+(fl.length?fl.join(","):"none");
+  if(typeof FLAG_PERSONA!=="undefined"&&FLAG_PERSONA) fl.push("persona"+(PERSONA_SEL?(":"+PERSONA_SEL):""));
+  const pers=(typeof window!=="undefined"&&window.AUBS_PERSONA&&window.AUBS_PERSONA.compilePersona)?" · persona LOADED":" · persona ABSENT";
+  el.textContent=BUILD+sp+tos+pers+" · flags: "+(fl.length?fl.join(","):"none");
 })();
 
 // Fast default = Qwen2.5-0.5B-Instruct — the original "0.9 GB test model" (945MB download)
@@ -1131,6 +1177,7 @@ window.send=async function(){
         // FLAG_ROUTER narrow cleanup: strip "language model"/false-identity boilerplate +
         // collapse repetition. Never edits facts/numbers/refusals; reverts if it guts the text.
         if(routerOn && SPINE.cleanModelOutput){ try{ const c=SPINE.cleanModelOutput(full); if(c&&c.text) full=c.text; }catch(_){} }
+        full=personaGuardOut(full);   // FLAG_PERSONA: strip model-identity / AI-disclaimer leaks (no-op when off)
         bubble.textContent=full;
         history.push({role:"assistant",content:full});
         saveHistory(history.slice(1));
@@ -1203,6 +1250,7 @@ async function runModelTurnThroughKernel(text, sent, bubble, aiWrap, t0, routerO
     let outText=ui.text;
     // Same narrow router cleanup the non-kernel path applies (only when the router is on).
     if(routerOn && SPINE && SPINE.cleanModelOutput){ try{ const cc=SPINE.cleanModelOutput(outText); if(cc&&cc.text) outText=cc.text; }catch(_){} }
+    outText=personaGuardOut(outText);   // FLAG_PERSONA (no-op when off)
     bubble.textContent=outText;
     history.push({role:"assistant",content:outText}); saveHistory(history.slice(1));
     captureMemories(text);
@@ -1277,6 +1325,7 @@ async function runModelTurnThroughConstitution(text, sent, bubble, aiWrap, t0, r
     // a false AUBS expansion, or an invented user name. Skipped on deterministic identity turns
     // (res.identity set) and when the flag is off. Deterministic, no model in the loop.
     if(!res.identity && SPINE && SPINE.identityGuard){ const _r=resolvedIdentity(); if(_r){ try{ outText=SPINE.identityGuard(outText, _r); }catch(_){} } }
+    if(!res.identity) outText=personaGuardOut(outText);   // FLAG_PERSONA: style guard on model turns (no-op when off)
     bubble.textContent=outText;
     // Trust OS Glass Box — one honest line under the answer, rendered from the Trust Record only.
     if(ui.glass_box_easy && trustOsOn()){ try{ const gx=document.createElement('div'); gx.className='glass-box-easy'; gx.style.cssText='font-size:0.78em;opacity:0.7;margin-top:4px'; gx.textContent='🔎 '+ui.glass_box_easy+(ui.trust_valid?'':' (record unverified)'); aiWrap.appendChild(gx); }catch(_){} }
