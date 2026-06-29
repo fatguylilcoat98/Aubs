@@ -870,6 +870,27 @@ async function recoverEngine(){
   }
   return false;
 }
+/* ── Safety Path Hardening (from the M14 device pass) ──────────────────────────────────
+   safeGate: the pre-pipeline safety gate, wrapped so a regex/engine fault can NEVER skip it
+   or throw the turn (Design Rule 5 — fail safe). crisisBackstop: a deterministic, model-free
+   re-check used on EVERY model-path failure/exception so a crisis message can never end on a
+   generic crash screen (the Final Principle). It calls NO model and persists NO raw crisis
+   text. Returns true if it handled the turn with the care response. */
+function safeGate(text){
+  try{ return (SPINE&&SPINE.safetyGate)?SPINE.safetyGate(text):{blocked:false}; }
+  catch(_){ return {blocked:false}; }
+}
+function crisisBackstop(text, bubble){
+  let g; try{ g=safeGate(text); }catch(_){ g={blocked:false}; }
+  if(g.blocked && g.reason==="self_harm"){
+    const msg=(SPINE&&SPINE.safeResponse)?SPINE.safeResponse("self_harm")
+      :"I'm really glad you said something. If you're in the US, you can call or text 988 (Suicide & Crisis Lifeline) any time. You don't have to get through this alone.";
+    bubble.textContent=msg;
+    history.push({role:"assistant",content:msg}); saveHistory(history.slice(1));
+    return true;
+  }
+  return false;
+}
 window.send=async function(){
   const box=document.getElementById('box'); const text=box.value.trim();
   if(!text||!engine) return;
@@ -885,7 +906,7 @@ window.send=async function(){
   // SAFETY GATE (Article 4): runs ALWAYS — before the router and the model, regardless of any
   // flag. A blocked request NEVER reaches the model. This is the pre-display gate that cannot
   // be skipped; without it (the prior build) unsafe prompts went straight to the 0.5B.
-  const gate=(SPINE&&SPINE.safetyGate)?SPINE.safetyGate(text):{blocked:false};
+  const gate=safeGate(text);   // wrapped: a gate fault can never skip the safety check (Rule 5)
   // FLAG_ROUTER — Response Quality Layer v1: deterministic answer BEFORE the model (skipped if blocked).
   const routerOn=!!(SPINE&&SPINE.FLAGS&&SPINE.FLAGS.FLAG_ROUTER);
   const routerEntries=(SPINE&&SPINE.adaptMemories)?SPINE.adaptMemories(memories):[];
@@ -894,11 +915,16 @@ window.send=async function(){
   try{
     if(gate.blocked){
       // Refuse safely; do NOT call the model and do NOT capture memories from harmful text.
+      const isCrisis=(gate.reason==="self_harm");
       full=(SPINE&&SPINE.safeResponse)?SPINE.safeResponse(gate.reason):"I can't help with that — it could cause harm.";
       finish="blocked:"+gate.reason; bubble.textContent=full;
       history.push({role:"assistant",content:full});
       saveHistory(history.slice(1));
-      logProvenanceFor(text, full, [history[0],{role:"user",content:text}], t0, aiWrap, { handled:true, intent:gate.reason, source_of_answer:"rule", tag:"unknown", memory_ids_cited:[], grounding_source:null });
+      // Provenance: NEVER store the raw crisis disclosure (Design Rule 6). On a self-harm turn
+      // log a redacted, content-free record tagged 'safety' (no technical "Why?" badge — a person
+      // in that moment does not need a provenance chip; attachWhy renders nothing for tag 'safety').
+      const provText=isCrisis?"[redacted: self-harm safety response]":text;
+      logProvenanceFor(provText, full, [history[0],{role:"user",content:provText}], t0, aiWrap, { handled:true, intent:gate.reason, source_of_answer:"rule", tag:isCrisis?"safety":"unknown", memory_ids_cited:[], grounding_source:null });
     } else
     if(routed && routed.handled){
       // Deterministic route — NO model call. Identity/math/memory/capability/greeting/unsafe.
@@ -964,10 +990,12 @@ window.send=async function(){
       }else if(fatalErr){
         const m=(fatalErr.message||String(fatalErr));
         console.error('[AUBS] unrecoverable:', m, '·', gpuDiagStr());
+        if(!crisisBackstop(text, bubble))                     // crisis turns never end on a crash screen
         bubble.textContent = RECOVERABLE.test(m)
           ? ("The on-device engine couldn't recover. ["+gpuDiagStr()+"] Error: "+m)
           : ("Error: "+m+"  ["+gpuDiagStr()+"]");
       }else{
+        if(!crisisBackstop(text, bubble))
         bubble.textContent="(No text came back. finish: "+(finish||"?")+" · model: "+(chosenModel||"?")+". Tap send again.)";
       }
       }   /* end else (non-kernel model path) */
@@ -1017,6 +1045,7 @@ async function runModelTurnThroughKernel(text, sent, bubble, aiWrap, t0, routerO
     });
   }catch(e){
     console.error('[AUBS kernel] bridge error (NOT silently falling back):', e, '·', gpuDiagStr());
+    if(crisisBackstop(text, bubble)) return;                 // crisis turns never end on a crash screen
     bubble.textContent="Kernel path error: "+(e&&e.message?e.message:e)+"  ["+gpuDiagStr()+"]";
     return;
   }
@@ -1030,6 +1059,7 @@ async function runModelTurnThroughKernel(text, sent, bubble, aiWrap, t0, routerO
     captureMemories(text);
   }else{
     // blocked (policy) or failed (engine) — show the honest message; do not fabricate an answer.
+    if(!ui.blocked && crisisBackstop(text, bubble)) return;  // engine failure on a crisis turn → care, not crash
     bubble.textContent=ui.text;
     if(ui.blocked){ history.push({role:"assistant",content:ui.text}); saveHistory(history.slice(1)); }
   }
@@ -1077,6 +1107,7 @@ async function runModelTurnThroughConstitution(text, sent, bubble, aiWrap, t0, r
     });
   }catch(e){
     console.error('[AUBS spine] pipeline error (NOT silently falling back):', e, '·', gpuDiagStr());
+    if(crisisBackstop(text, bubble)) return;                 // crisis turns never end on a crash screen
     bubble.textContent="Constitution path error: "+(e&&e.message?e.message:e)+"  ["+gpuDiagStr()+"]";
     return;
   }
@@ -1088,6 +1119,9 @@ async function runModelTurnThroughConstitution(text, sent, bubble, aiWrap, t0, r
     history.push({role:"assistant",content:outText}); saveHistory(history.slice(1));
     captureMemories(text);
   }else{
+    // Engine failure (the founder's "Something went wrong…" path): re-examine for crisis BEFORE
+    // showing the generic message — a crisis turn must never end on a crash (the Final Principle).
+    if(!ui.blocked && crisisBackstop(text, bubble)) return;
     bubble.textContent=ui.text;
     if(ui.blocked){ history.push({role:"assistant",content:ui.text}); saveHistory(history.slice(1)); }
   }
@@ -1208,6 +1242,7 @@ function renderTrace(aiWrap, trace){
 }
 function attachWhy(aiWrap, prov){
   if(!aiWrap || !prov) return;
+  if(prov.tag==='safety') return;   // crisis turn: show ONLY the care message, no technical "Why?" badge (Layer 4)
   const why=document.createElement('button');
   why.type='button';
   why.textContent='Why? · '+prov.tag+(prov.grounding_source==='spine_verified'?' (spine-verified)':'');
