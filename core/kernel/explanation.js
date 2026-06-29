@@ -17,7 +17,9 @@
     var head;
     if (outcome.decision !== "allow") head = "Blocked by policy.";
     else if (outcome.kind === "refusal") head = "Refused for safety.";
+    else if (outcome.kind === "no_provider") head = "No eligible provider.";
     else if (outcome.kind === "failed") head = "Execution failed before an answer.";
+    else if (outcome.kind === "executed") head = outcome.left_device ? "Answered via a provider." : "Answered locally.";
     else head = "Answered locally.";
     return head + " " + tail;
   }

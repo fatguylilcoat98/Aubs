@@ -10,6 +10,7 @@
     module.exports = {
       capabilities: caps,
       drift: drift,
+      eligibility: require("./eligibility"),
       createRegistry: registry.createRegistry,
       providerToKernelAdapter: registry.providerToKernelAdapter,
       adapterToProvider: registry.adapterToProvider,
@@ -22,6 +23,7 @@
     window.AUBS_PROVIDERS = {
       capabilities: window.AUBS_PROVIDER_CAPS,
       drift: window.AUBS_PROVIDER_DRIFT,
+      eligibility: window.AUBS_PROVIDER_ELIG,
       createRegistry: R.createRegistry,
       providerToKernelAdapter: R.providerToKernelAdapter,
       adapterToProvider: R.adapterToProvider,
