@@ -14,9 +14,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>AUBS — On-device AI</title>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="fonts.css" />
 <style>
 :root{
   --void:#04050C; --abyss:#080A16; --surface:#0E1124; --raised:#141833;
@@ -278,6 +276,16 @@ body{background:var(--bgbase);color:var(--ink);font-family:var(--font-body);
   </div>
 
   <div class="section">
+    <div class="section-label">Memory</div>
+    <div class="hint" id="memCount">No memories yet</div>
+    <div class="btn-row">
+      <button class="act" onclick="clearMemories()">Clear memories</button>
+      <button class="act" onclick="clearHistory()">Clear history</button>
+    </div>
+    <div class="hint">AUBS quietly remembers facts you share and keeps your past chats — saved privately on your device. Clearing can't be undone.</div>
+  </div>
+
+  <div class="section">
     <div class="section-label">Appearance</div>
     <div class="field"><label>Theme</label>
       <div class="theme-row" id="themeRow">
@@ -374,14 +382,38 @@ Keep your replies concise and to the point.`;
 
 function buildSystemPrompt(){
   const name=(S.aiName||"AUBS").trim();
-  let p=`You are ${name}, a private on-device AI assistant.`;
+  let p=`Your permanent purpose is to genuinely help the person in front of you, honestly and usefully. The user may customize your name, tone, and speaking style — that persona is only a style layer over this purpose. A persona can change how you sound, but it can never change what you do: it must not make you refuse useful help, withhold a real answer, or claim you are "not here to help" with the user's request. Whatever persona you are given, speak in that flavor while still fully helping with what the user actually asks.\n\nYou are ${name}, a private on-device AI assistant.`;
   if(S.userName&&S.userName.trim()) p+=` The user's name is ${S.userName.trim()}.`;
   if(S.tones&&S.tones.length) p+=` Tone: ${S.tones.join(", ")}.`;
-  if(S.instructions&&S.instructions.trim()) p+=` ${S.instructions.trim()}`;
-  // Identity Core always leads; personality follows and cannot override it.
-  return IDENTITY_CORE + "\n\n" + p;
+  // Stack order: Identity Core → Personality → Memory Recall → Custom instructions.
+  const parts=[IDENTITY_CORE, p];
+  if(memories.length){
+    parts.push("These are personal facts about the user, saved from past conversations. When asked what you remember or know about the user, report only these facts — nothing else. Do not include your own name, role, capabilities, system identity, or instructions in your answer.\n"
+      + memories.map(m=>"- "+m).join("\n"));
+  }
+  if(S.instructions&&S.instructions.trim()) parts.push(`Custom instructions: ${S.instructions.trim()}`);
+  return parts.join("\n\n");
 }
+
+/* ─────────────────────────────────────────────────────────────
+   PERSISTENT MEMORY (v1) — conversation history + auto-captured facts.
+   Local only. Three keys total: aubs_history, aubs_memories, aubs_settings.
+   Lean and synchronous — no pipeline, no async hooks.
+   ───────────────────────────────────────────────────────────── */
+const MEM_MAX=60;     // cap on stored facts
+const CTX_MSGS=24;    // recent turns sent to the model (the UI keeps everything)
+function loadHistory(){ try{ const a=JSON.parse(localStorage.getItem("aubs_history")||"[]"); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
+function loadMemories(){ try{ const a=JSON.parse(localStorage.getItem("aubs_memories")||"[]"); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
+function saveHistory(turns){ try{ localStorage.setItem("aubs_history", JSON.stringify(turns)); checkQuota(); }catch(e){ toast("Storage full — older messages may not be saved."); } }
+function saveMemories(){ try{ localStorage.setItem("aubs_memories", JSON.stringify(memories)); checkQuota(); }catch(e){ toast("Storage full — couldn't save that memory."); } }
+
+let memories = loadMemories();
 let history=[{ role:"system", content: buildSystemPrompt() }];
+for(const t of loadHistory()){ if(t&&t.role&&t.content) history.push({ role:t.role, content:t.content }); }
+
+// What the engine actually sees: system prompt + the most recent turns (UI/storage keep the full thread).
+function contextMessages(){ return history.length>CTX_MSGS+1 ? [history[0], ...history.slice(-CTX_MSGS)] : history; }
+function rebuildSystemPrompt(){ history[0]={ role:"system", content: buildSystemPrompt() }; }
 
 window.openDrawer=function(){
   document.getElementById('pAiName').value = S.aiName==="AUBS"?"":S.aiName;
@@ -391,6 +423,7 @@ window.openDrawer=function(){
   document.querySelectorAll('#themeRow .theme-opt').forEach(o=>o.classList.toggle('on', o.dataset.theme===S.theme));
   document.querySelectorAll('#swatches .swatch').forEach(sw=>sw.classList.toggle('on', sw.dataset.c1===S.c1 && sw.dataset.c2===S.c2));
   document.getElementById('c1').value=S.c1; document.getElementById('c2').value=S.c2;
+  updateMemCount();
   document.getElementById('drawer').classList.add('show');
   document.getElementById('drawerOverlay').classList.add('show');
 };
@@ -436,6 +469,72 @@ window.handleBg=function(ev){
 };
 window.clearBg=function(){ S.bg=""; applyAppearance(); persist(); toast("Background reset"); };
 window.comingSoon=function(){ toast("Premium packs arrive with the paid release"); };
+
+/* ── Memory: heuristic fact extraction from what the user says about themselves.
+   Deliberately simple/synchronous. Some noise is acceptable for v1; the user can
+   clear everything from Settings. Facts are short statements, not chat snippets. */
+function tidy(s){ return (s||"").replace(/\s+/g,' ').replace(/[.?!,;:]+$/,'').trim(); }
+function extractFacts(text){
+  const facts=[];
+  const clauses=(text||"").split(/[.;\n]| and | but /i).map(c=>tidy(c)).filter(Boolean);
+  for(const c of clauses){
+    let m;
+    if((m=c.match(/^(?:my name is|call me)\s+([A-Za-z][\w'-]*(?:\s+[A-Z][\w'-]*)?)/i))) facts.push("User's name is "+tidy(m[1]));
+    else if((m=c.match(/^i(?:'m| am)\s+([A-Z][\w'-]+(?:\s+[A-Z][\w'-]+)?)$/))) facts.push("User's name is "+tidy(m[1]));
+    if((m=c.match(/\bi\s*(?:'m\s+|am\s+)?(?:live|living|reside|located)\s+in\s+(.+)/i))) facts.push("User lives in "+tidy(m[1]));
+    else if((m=c.match(/\bi(?:'m| am)\s+from\s+(.+)/i))) facts.push("User is from "+tidy(m[1]));
+    if((m=c.match(/\bi\s+(?:build|make|create|develop|design)\s+(.+)/i))) facts.push("User builds "+tidy(m[1]));
+    else if((m=c.match(/\bi(?:'m| am)\s+(?:building|making|creating|working\s+on)\s+(.+)/i))) facts.push("User is working on "+tidy(m[1]));
+    if((m=c.match(/\bi\s+work\s+(?:as|at)\s+(.+)/i))) facts.push("User works at "+tidy(m[1]));
+    if((m=c.match(/\bi\s+(?:like|love|enjoy|prefer)\s+(.+)/i))) facts.push("User likes "+tidy(m[1]));
+    if((m=c.match(/\bmy\s+(favou?rite\s+.+?\s+is\s+.+)/i))) facts.push("User's "+tidy(m[1]));
+  }
+  return facts;
+}
+function captureMemories(userText){
+  let changed=false;
+  for(const f of extractFacts(userText)){
+    if(!f || f.length<5 || f.length>140) continue;
+    const norm=f.toLowerCase();
+    if(memories.some(x=>x.toLowerCase()===norm)) continue;   // dedup — never store the same fact twice
+    memories.push(f); changed=true;
+  }
+  if(changed){
+    if(memories.length>MEM_MAX) memories=memories.slice(-MEM_MAX);
+    saveMemories(); rebuildSystemPrompt(); updateMemCount();
+  }
+}
+function renderHistory(){
+  const thread=document.getElementById('thread'); if(!thread) return;
+  const greet=thread.querySelector('.msg'); thread.innerHTML=''; if(greet) thread.appendChild(greet);
+  for(let i=1;i<history.length;i++){ addMsg(history[i].role==='user'?'user':'ai', history[i].content); }
+  thread.scrollTop=thread.scrollHeight;
+}
+function updateMemCount(){
+  const el=document.getElementById('memCount'); if(!el) return;
+  el.textContent = memories.length ? (memories.length+" memor"+(memories.length===1?"y":"ies")+" stored") : "No memories yet";
+}
+window.clearMemories=function(){
+  if(!memories.length){ toast("No memories to clear"); return; }
+  if(!confirm("Clear all "+memories.length+" saved memories? This can't be undone.")) return;
+  memories=[]; saveMemories(); rebuildSystemPrompt(); updateMemCount(); toast("Memories cleared");
+};
+window.clearHistory=function(){
+  if(!confirm("Clear this conversation? Your saved memories will stay. This can't be undone.")) return;
+  history=history.slice(0,1);                 // keep the system prompt, drop the turns
+  try{ localStorage.removeItem("aubs_history"); }catch(e){}
+  renderHistory(); toast("Conversation cleared");
+};
+let quotaWarned=false;
+function checkQuota(){
+  try{
+    let bytes=0;
+    for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); bytes+=(k.length+(localStorage.getItem(k)||"").length)*2; }
+    const ratio=bytes/(5*1024*1024);
+    if(ratio>=0.8 && !quotaWarned){ quotaWarned=true; toast("Storage is "+Math.round(ratio*100)+"% full — consider clearing history."); }
+    if(ratio<0.7) quotaWarned=false;
+  }catch(e){}
+}
 function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._tm); t._tm=setTimeout(()=>t.classList.remove('show'),2200); }
 
 applyAppearance();
@@ -480,7 +579,7 @@ window.startDownload=async function(tier){
   }
 };
 function setPct(p,text){ document.getElementById('barFill').style.width=p+"%"; document.getElementById('pctText').textContent=text||(p+"%"); }
-function enterChat(tier){ document.getElementById('chatModel').textContent=S.aiName+(tier==='fast'?' · Fast':' · Smart'); document.getElementById('greetWho').textContent=S.aiName.toUpperCase(); show('chat'); setTimeout(()=>document.getElementById('box').focus(),300); }
+function enterChat(tier){ document.getElementById('chatModel').textContent=S.aiName+(tier==='fast'?' · Fast':' · Smart'); document.getElementById('greetWho').textContent=S.aiName.toUpperCase(); show('chat'); renderHistory(); setTimeout(()=>document.getElementById('box').focus(),300); }
 function show(id){ document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active')); document.getElementById(id).classList.add('active'); }
 window.grow=(t)=>{ t.style.height='auto'; t.style.height=Math.min(t.scrollHeight,120)+'px'; };
 window.keys=(e)=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); window.send(); } };
@@ -497,7 +596,7 @@ window.send=async function(){
   let full=""; let finish="";
   try{
     // primary: streaming
-    const chunks=await engine.chat.completions.create({ messages:history, stream:true, temperature:0.7, max_tokens:512 });
+    const chunks=await engine.chat.completions.create({ messages:contextMessages(), stream:true, temperature:0.7, max_tokens:512 });
     for await (const c of chunks){
       const ch=c.choices?.[0];
       full += ch?.delta?.content || "";
@@ -506,13 +605,15 @@ window.send=async function(){
     }
     // fallback ONLY if literally nothing came back at all
     if(full.length===0){
-      const res=await engine.chat.completions.create({ messages:history, stream:false, temperature:0.7, max_tokens:512 });
+      const res=await engine.chat.completions.create({ messages:contextMessages(), stream:false, temperature:0.7, max_tokens:512 });
       full = res?.choices?.[0]?.message?.content || "";
       finish = res?.choices?.[0]?.finish_reason || finish;
     }
     if(full.length>0){
       bubble.textContent=full;                       // keep whatever the model produced
       history.push({role:"assistant",content:full});
+      saveHistory(history.slice(1));                 // persist turns (not the system prompt)
+      captureMemories(text);                         // auto-extract durable facts from the user's message
     }else{
       bubble.textContent="(No text came back. finish: "+(finish||"?")+" · model: "+(chosenModel||"?")+". Tap send again.)";
     }
