@@ -36,6 +36,13 @@ t("TASK/SUMMARY are private+episodic; FACT is not", MT.isPrivate("TASK") && MT.i
     t("memory: private/episodic item in used set is flagged self-verifiably", proof.no_private_sent === false && proof.claims[proof.claims.length - 1].strength === S.SELF_VERIFIABLE && /private\/episodic/.test(proof.claims[proof.claims.length - 1].what));
   }
 
+  // ── REGRESSION (audit): an UNKNOWN/missing-type item can't be certified non-private ──────────
+  {
+    const proof = await MEM.buildMemoryProof([{ id: "x_1" /* no type */ }]);
+    const last = proof.claims[proof.claims.length - 1];
+    t("memory: untyped item → 'no private sent' is NOT self-verifiable (downgraded ~)", proof.no_private_sent === false && last.strength === S.RUNTIME_ATTESTED && /cannot certify/i.test(last.what));
+  }
+
   console.log("\nAssertions: " + pass + "/" + (pass + fail));
   if (fail) { console.log("FAILURES:\n" + F.join("\n")); process.exit(1); }
   console.log("Layer 6 Memory: typed items graded honestly (hash ✓ / id ~); 'no private Episodes sent' is self-verifiable; type taxonomy reconciled (Constraint/Policy/Capability live outside memory).");

@@ -18,6 +18,12 @@ t("T0 exact verbatim → restorable", GR.restore("Chris lives in Sacramento, Cal
 t("T1 normalized (case/punct) → restorable", GR.restore("chris lives in sacramento california", sources).tier === "T1-normalized");
 t("T2 token-subset → restorable", GR.restore("meeting Tuesday 3pm", sources).tier === "T2-token-subset");
 t("no source → not restorable (null)", GR.restore("Chris owns three boats", sources) === null);
+// REGRESSION (audit): an empty/whitespace claim must NEVER restore (indexOf('')===0 bug)
+t("empty claim → NOT restorable (no false ✓ via indexOf'')", GR.restore("", sources) === null && GR.restore("   ", sources) === null);
+{
+  const p = GR.buildGroundingProof({ claims: [{ text: "" }], sources });
+  t("empty claim in proof → unsupported ⚠, never self-verifiable ✓", p.claims[0].strength === S.UNSUPPORTED);
+}
 
 // ── proof grading ─────────────────────────────────────────────────────────────────────────
 {

@@ -87,6 +87,8 @@
       if (!c || !isCanonical(c.strength)) issues.push({ at: i, type: "missing_or_invalid_strength" });
       if (c && !c.badge) issues.push({ at: i, type: "missing_badge" });
       if (c && typeof c.limits !== "string") issues.push({ at: i, type: "missing_limits" });
+      // a claim's badge MUST match its strength — no estimate wearing a borrowed ✓.
+      if (c && isCanonical(c.strength) && c.badge && c.badge !== BADGE[c.strength]) issues.push({ at: i, type: "badge_strength_mismatch" });
     });
     var badges = ALL.map(function (s) { return BADGE[s]; });
     if (new Set(badges).size !== ALL.length) issues.push({ type: "badges_not_distinct" });

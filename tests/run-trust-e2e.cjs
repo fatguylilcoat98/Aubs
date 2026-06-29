@@ -81,6 +81,7 @@ const NOW = "2026-06-29T00:00:00Z";
   // ── Glass Box REFUSES to render an unbadged claim or invalid record ─────────────────────────
   t("E2E: render refuses an invalid record", await throws(async () => { const bad = JSON.parse(JSON.stringify(record)); delete bad.signature; T.glassBox.render(bad, { mode: "detailed" }); }));
   t("E2E: render refuses an unbadged claim smuggled into a slot", await throws(async () => { const bad = T.record.buildTrustRecord({ chain: { seq: 1, prev_hash: "a", record_hash: "b", signature: "c" }, intent_id: "i", memory: { claims: [{ what: "secret", limits: "x" }] } }); T.glassBox.render(bad, { mode: "detailed" }); }));
+  t("E2E: renderClaim refuses a badge≠strength claim (no borrowed ✓)", await throws(async () => { T.glassBox.renderClaim({ what: "estimate", strength: T.strengths.RUNTIME_ATTESTED, badge: "✓", limits: "none" }); }));
 
   console.log("\nAssertions: " + pass + "/" + (pass + fail));
   if (fail) { console.log("FAILURES:\n" + F.join("\n")); process.exit(1); }

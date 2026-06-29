@@ -18,6 +18,9 @@
     return "{" + k.map(function (x) { return JSON.stringify(x) + ":" + canonicalJSON(v[x]); }).join(",") + "}";
   }
   function sha256hex(input) {
+    // crypto.subtle exists only in a SECURE CONTEXT (https/localhost). Degrade cleanly instead
+    // of throwing a confusing error — callers (assembleTrustRecord) treat rejection as "no record".
+    if (!SUBTLE || !ENC) return Promise.reject(new Error("crypto.subtle/TextEncoder unavailable — secure context (https/localhost) required"));
     var str = (typeof input === "string") ? input : canonicalJSON(input);
     return SUBTLE.digest("SHA-256", ENC.encode(str)).then(function (buf) {
       var b = new Uint8Array(buf), h = "";

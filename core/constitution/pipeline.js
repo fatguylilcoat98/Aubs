@@ -35,7 +35,7 @@
   // evidence. Fully defensive — a failure here NEVER breaks the turn (sets an error field and
   // returns null). Off by default → state.trust_record is simply absent (byte-identical).
   async function assembleTrustRecord(state, request, options, kind) {
-    if (!TRUST || !TRUST.record) return null;
+    if (!TRUST || !TRUST.record || !TRUST.proofs || !TRUST.strengths) return null;
     try {
       var Sx = TRUST.strengths, REC = TRUST.record, PF = TRUST.proofs;
       var classification = (request.constraints && request.constraints.data_classification) || "personal";
@@ -135,6 +135,8 @@
       step("DecisionRecord", "blocked", "ok"); step("Ledger", state.record ? "appended" : "n/a", "ok");
       state.explanation = level1("blocked", "blocked", leftDevice);
       step("Explanation", state.explanation, "ok");
+      state.model_id = "none"; state._memEntries = [];
+      if (trustOS) await assembleTrustRecord(state, request, options, "blocked");
       return state;
     }
     function blockExplanation(stage, reason, leftDevice) {
@@ -213,6 +215,7 @@
         if (isIdentityFact) state.identity = { source: GRI.assistantNameSource || "default", kind: gres.factId.slice("identity:".length), assistant_name: GRI.assistantDisplayName || "AUBS", assistant_name_source: GRI.assistantNameSource || "default", app_id: GRI.appId || "aubs", model_called: false };
         state.explanation = "Answered from a runtime-owned governed fact (" + gres.factId + "). Model was not called.";
         step("Explanation", state.explanation);
+        state.model_id = "none"; state._memEntries = [];
         if (trustOS) await assembleTrustRecord(state, request, options, "governed_fact");
         return state;
       }
@@ -272,6 +275,8 @@
       if (PROVEN) state.provenance = PROVEN.governed("identity:" + idRoute.kind, "spine:identityRoute");
       state.explanation = idWhy;
       step("Explanation", state.explanation);
+      state.model_id = "none"; state._memEntries = [];
+      if (trustOS) await assembleTrustRecord(state, request, options, "identity");
       return state;
     }
 

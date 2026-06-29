@@ -34,6 +34,7 @@
     return "{" + k.map(function (x) { return JSON.stringify(x) + ":" + canonicalJSON(v[x]); }).join(",") + "}";
   }
   function sha256hex(str) {
+    if (!SUBTLE || !ENC) return Promise.reject(new Error("crypto.subtle/TextEncoder unavailable — secure context (https/localhost) required"));
     return SUBTLE.digest("SHA-256", ENC.encode(String(str))).then(function (buf) {
       var b = new Uint8Array(buf), h = "";
       for (var i = 0; i < b.length; i++) h += b[i].toString(16).padStart(2, "0");

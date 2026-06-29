@@ -29,6 +29,8 @@
 
   // Returns { tier, source_id } if restorable, else null. Deterministic, model-free.
   function restore(claimText, sources) {
+    // An empty/whitespace claim is NOT a claim — never let indexOf("") === 0 hand it a ✓.
+    if (!claimText || !String(claimText).trim()) return null;
     for (var i = 0; i < sources.length; i++) {        // T0 exact (verbatim)
       if (String(sources[i].span || "").indexOf(claimText) >= 0) return { tier: "T0-exact", source_id: sources[i].id };
     }

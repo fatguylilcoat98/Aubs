@@ -38,6 +38,9 @@ t("normalize unknown → invalid (fails closed)", S.normalize("vibes").strength 
   t("validateClaims ok for a valid set", S.validateClaims(good).ok === true);
   const bad = [{ what: "c", strength: "made-up", limits: "x" }];
   t("validateClaims flags a non-canonical strength", S.validateClaims(bad).ok === false);
+  // REGRESSION (audit): a claim whose badge doesn't match its strength is rejected (no borrowed ✓)
+  const mismatch = [{ what: "estimate", strength: S.RUNTIME_ATTESTED, badge: "✓", limits: "none" }];
+  t("validateClaims flags badge≠strength (estimate wearing a borrowed ✓)", S.validateClaims(mismatch).ok === false && S.validateClaims(mismatch).issues.some(function (i) { return i.type === "badge_strength_mismatch"; }));
 }
 
 console.log("\nAssertions: " + pass + "/" + (pass + fail));

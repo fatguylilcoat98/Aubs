@@ -23,7 +23,7 @@ const NOW = "2026-06-29T00:00:00Z";
   // ── flag OFF → byte-identical (no trust_record) ─────────────────────────────────────────────
   {
     const s = await turn({ trustOS: false });
-    t("flag OFF: no trust_record on the turn (byte-identical)", s.ui.trust_record === null && s.ui.glass_box_easy === null);
+    t("flag OFF: no trust_* keys on the ui at all (truly byte-identical shape)", !("trust_record" in s.ui) && !("glass_box_easy" in s.ui) && !("trust_valid" in s.ui));
     t("flag OFF: the answer itself is unchanged", s.ui.text === "Sacramento is the capital of California.");
   }
 

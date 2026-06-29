@@ -50,8 +50,11 @@
     var mem = steps.memory ? await steps.memory(ctx) : { items: [] };
     line("Memory", (mem.items || []).length + " typed item(s)", S.RUNTIME_ATTESTED);
 
-    // 5. Reasoning permission — the gate that was missing.
-    var perm = RP.evaluate({ governedFactHandled: false, policyDecision: pol.decision, modelForbidden: ctx.modelForbidden, classification: ctx.classification, escalationGranted: ctx.escalationGranted });
+    // 5. Reasoning permission — the gate that was missing. Guard: if the module failed to load,
+    // fail safe to 'defer' (never silently allow the model because a gate is missing).
+    var perm = (RP && RP.evaluate)
+      ? RP.evaluate({ governedFactHandled: false, policyDecision: pol.decision, modelForbidden: ctx.modelForbidden, classification: ctx.classification, escalationGranted: ctx.escalationGranted })
+      : { permission: "defer", reason: "reasoning-permission gate unavailable" };
     if (perm.permission === "deny" || perm.permission === "defer") { line("ReasoningPermission", perm.permission + " — " + perm.reason, S.SELF_VERIFIABLE, "blocked"); return { outcome: "reasoning_" + perm.permission, reason: perm.reason, model_called: false, trace: trace }; }
     line("ReasoningPermission", perm.permission, S.SELF_VERIFIABLE);
 

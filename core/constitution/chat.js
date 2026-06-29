@@ -129,7 +129,7 @@
     if (ok) text = state.output_text || "";
     else if (blocked) text = blockedMessage(state);
     else text = "Something went wrong before I could answer. Nothing left this device.";
-    return {
+    var ui = {
       ok: ok, blocked: blocked, text: text,
       explanation: state.explanation || "",
       grounding: state.grounding ? state.grounding.tag : null,
@@ -141,13 +141,16 @@
       identity: state.identity || null,
       // A2.1 explainability invariant: every response carries internal provenance —
       // who owned it, where it came from, whether the model was consulted, and why.
-      provenance: state.provenance || null,
-      // Trust OS: the full per-turn Trust Record (when FLAG_TRUST_OS on), plus the one-line
-      // Glass Box "Easy" view rendered from it. Absent (null) when the flag is off.
-      trust_record: state.trust_record || null,
-      trust_valid: state.trust_record_valid === true,
-      glass_box_easy: (state.trust_record && TRUST && TRUST.glassBox) ? (function () { try { return TRUST.glassBox.render(state.trust_record, { mode: "easy" }).text; } catch (e) { return null; } })() : null
+      provenance: state.provenance || null
     };
+    // Trust OS fields are added ONLY when a Trust Record exists — so with FLAG_TRUST_OS off the
+    // ui shape is byte-identical to pre-Trust-OS (no trust_* keys appear at all).
+    if (state.trust_record) {
+      ui.trust_record = state.trust_record;
+      ui.trust_valid = state.trust_record_valid === true;
+      ui.glass_box_easy = (TRUST && TRUST.glassBox) ? (function () { try { return TRUST.glassBox.render(state.trust_record, { mode: "easy" }).text; } catch (e) { return null; } })() : null;
+    }
+    return ui;
   }
 
   // Slice 0 — sample APP IDENTITIES. AUBS is the OS; these are interchangeable applications

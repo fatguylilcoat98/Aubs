@@ -22,6 +22,9 @@
 
   function renderClaim(c) {
     if (!c || !c.badge || !S.isCanonical(c.strength)) throw new Error("glass-box: refusing to render a claim with no/invalid strength badge");
+    // The render boundary is the last line before a user sees a badge. A claim whose badge does
+    // not match its strength is an estimate wearing a borrowed ✓ — refuse it.
+    if (c.badge !== S.BADGE[c.strength]) throw new Error("glass-box: badge does not match strength ('" + c.strength + "' must render '" + S.BADGE[c.strength] + "', not '" + c.badge + "')");
     return { text: c.what, badge: c.badge, strength: c.strength, limits: c.limits, form: c.form || null };
   }
   function renderSlot(proof) { return (proof && proof.claims ? proof.claims : []).map(renderClaim); }
