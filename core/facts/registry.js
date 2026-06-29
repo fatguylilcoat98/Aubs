@@ -117,21 +117,40 @@
     var s = String(q || "");
     return (SPINE.isMemoryQuery && SPINE.isMemoryQuery(s))
         || /\bdo you (?:remember|know|recall)\b[^?]*\bmy\b/i.test(s)
-        || /\bwhat do you (?:know|remember) about me\b/i.test(s);
+        || /\bwhat do you (?:know|remember) about me\b/i.test(s)
+        || /\bfavou?rite\b/i.test(s)                                 // "what's my favorite X" — clearly a stored attribute
+        || /\b(?:do|did)\s+i\s+(?:like|love|own|have|prefer)\b/i.test(s);  // "do I own a car" — honest miss, not a model guess
   }
   function liveMems(entries) {
     return (entries || []).filter(function (e) { return e && e.content && (e.superseded_by == null); });
   }
   // recall(q, entries) -> { answer, memory_id?|memory_ids?, miss? } | null
+  // Collapse a memory list to the NEWEST fact per single-value slot (so a stale "Denver" can't
+  // sit next to a current "Seattle" in a listing). Multi-value facts (likes/has/unknown) are all
+  // kept. Preserves chronological order. Defensive even when capture already supersedes.
+  function collapseBySlot(live) {
+    var seen = {}, picked = [];
+    for (var i = live.length - 1; i >= 0; i--) {
+      var slot = SPINE.factSlot ? SPINE.factSlot(live[i].content) : null;
+      var single = slot && (slot === "name" || slot === "location" || slot === "job" || slot === "building" || slot.indexOf("favorite:") === 0);
+      var key = single ? slot : ("__" + String(live[i].content).toLowerCase());
+      if (seen[key]) continue;
+      seen[key] = 1; picked.unshift(live[i]);
+    }
+    return picked;
+  }
   function recall(q, entries) {
     if (!isRecallQuery(q)) return null;
     var live = liveMems(entries);
     if (/\bwhat do you (?:know|remember) about me\b/i.test(q)) {
       if (!live.length) return { answer: "I don't know anything about you yet — tell me and I'll remember.", miss: true };
-      var facts = live.map(function (e) { return SPINE.userFactToSecondPerson(e.content).replace(/[.?!]$/, ""); });
-      return { answer: "Here's what I know about you: " + facts.join("; ") + ".", memory_ids: live.map(function (e) { return e.id; }) };
+      var picked = collapseBySlot(live);
+      var facts = picked.map(function (e) { return SPINE.userFactToSecondPerson(e.content).replace(/[.?!]$/, ""); });
+      return { answer: "Here's what I know about you: " + facts.join("; ") + ".", memory_ids: picked.map(function (e) { return e.id; }) };
     }
-    for (var i = 0; i < live.length; i++) {
+    // NEWEST-WINS: iterate from the most recent entry so an updated fact ("I moved to Seattle")
+    // beats the stale one ("Denver") even if both are still live.
+    for (var i = live.length - 1; i >= 0; i--) {
       if (SPINE.relevanceCheck(q, live[i].content, { disambiguate: true }).relevant) {
         return { answer: SPINE.userFactToSecondPerson(live[i].content).replace(/[.?!]$/, "") + ".", memory_id: live[i].id };
       }
