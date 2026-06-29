@@ -1,0 +1,28 @@
+{
+  "$id": "aubs/cac/intent",
+  "title": "CAC Intent v0.1",
+  "description": "The user's request before execution. The first object every pipeline produces.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["cac_version", "intent_id", "created_at", "user_text", "source", "constraints"],
+  "properties": {
+    "cac_version": { "const": "0.1" },
+    "intent_id":   { "type": "string" },
+    "created_at":  { "type": "string", "format": "date-time" },
+    "user_text":   { "type": "string" },
+    "source":      { "enum": ["user", "system", "test", "import"] },
+    "context_refs":{ "type": "array", "items": { "type": "string" } },
+    "constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_egress", "data_classification", "local_only", "requires_user_approval"],
+      "properties": {
+        "max_egress":             { "enum": ["none", "redacted", "full"] },
+        "allowed_providers":      { "type": "array", "items": { "type": "string" } },
+        "data_classification":    { "enum": ["public", "personal", "sensitive"] },
+        "local_only":             { "type": "boolean" },
+        "requires_user_approval": { "type": "boolean" }
+      }
+    }
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "$id": "aubs/cac/result",
+  "title": "CAC Result v0.1",
+  "description": "The final output of an executed plan.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["cac_version", "result_id", "intent_id", "plan_id", "status", "output_text", "created_at"],
+  "properties": {
+    "cac_version": { "const": "0.1" },
+    "result_id":   { "type": "string" },
+    "intent_id":   { "type": "string" },
+    "plan_id":     { "type": "string" },
+    "status":      { "enum": ["ok", "blocked", "error", "partial"] },
+    "output_text": { "type": "string" },
+    "model_id":    { "type": ["string", "null"] },
+    "provider_id": { "type": ["string", "null"] },
+    "created_at":  { "type": "string", "format": "date-time" },
+    "grounding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tag"],
+      "properties": {
+        "tag":              { "enum": ["grounded", "inferred", "general", "unknown"] },
+        "grounding_source": { "type": ["string", "null"] },
+        "memory_refs":      { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}
