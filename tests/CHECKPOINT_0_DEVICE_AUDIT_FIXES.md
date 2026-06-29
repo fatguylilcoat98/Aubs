@@ -173,6 +173,26 @@ shown). Golden 16/16, citation 28/28, relevance 9/9, extraction 18/18 unchanged.
 Settings shows the memory; ask **"what's my name?"** → Chris; ask **"what's your name?"** →
 AUBS (persona styling OK); "Why?" still renders.
 
+## Runtime lever 1 — non-streaming generation (S24 mapAsync fault)
+
+Device evidence (cp0-devaudit-6): turn 1 works; turn 2 ("what's my name?") fails with
+`Failed to execute 'mapAsync' on 'GPUBuffer': Buffer was unmapped before mapping was
+resolved` and the bubble shows **"The on-device engine couldn't recover"** — i.e. the
+`recoverEngine()` path fired and a recreate-from-cache did **not** clear the fault.
+Recreating on a freshly-faulted Adreno context just re-races (WebLLM #497).
+
+**Lever 1 (this change, isolated for a clean device signal):** `send()` now generates
+**non-streaming** (`stream:false`) instead of streaming. Streaming maps/unmaps a GPU
+buffer on every token chunk; that incremental mapping is the racing op. One decode = one
+readback. The reply appears at once (the dots cover the wait) instead of typing in.
+Recovery is left unchanged as a safety net. If 20 turns still fault, the next isolated
+levers are: harden recovery (longer settle + re-warm), then bump `@mlc-ai/web-llm` past
+0.2.84, then a model swap.
+
+Cannot be validated headlessly (no WebGPU in CI); this is a device experiment. Headless
+regression unchanged: golden 16/16, grounding-verify 8/8, B-minimal+recovery 9/9, trace
+A/B/C/D pass. Build `cp0-devaudit-7 · nonstream`, SW cache `v9`.
+
 ## Scope honored
 
 Changed: `spine/spine.js` (added `extractFacts` + helpers, `identityPreamble`; exported
