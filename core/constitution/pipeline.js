@@ -29,6 +29,53 @@
   var SPINE   = isNode ? require("../../spine/spine.js") : (typeof window !== "undefined" ? window.AUBS_SPINE : null);
   var GATE    = isNode ? require("../facts/gate") : (typeof window !== "undefined" ? window.AUBS_FACT_GATE : null);
   var PROVEN  = isNode ? require("../facts/provenance") : (typeof window !== "undefined" ? window.AUBS_PROVENANCE : null);
+  var TRUST   = isNode ? require("../trust") : (typeof window !== "undefined" ? window.AUBS_TRUST : null);
+
+  // Trust OS wire-up (FLAG_TRUST_OS): assemble a validated Trust Record from this turn's
+  // evidence. Fully defensive — a failure here NEVER breaks the turn (sets an error field and
+  // returns null). Off by default → state.trust_record is simply absent (byte-identical).
+  async function assembleTrustRecord(state, request, options, kind) {
+    if (!TRUST || !TRUST.record) return null;
+    try {
+      var Sx = TRUST.strengths, REC = TRUST.record, PF = TRUST.proofs;
+      var classification = (request.constraints && request.constraints.data_classification) || "personal";
+      var leftDevice = !!(state.estimate && state.estimate.max_egress && state.estimate.max_egress !== "none");
+      var gov = state.governance || {};
+      var integrity;
+      if (options.publicKey && options.ledgerStore && LEDGER) {
+        integrity = await PF.integrity.buildIntegrityProof({ records: await options.ledgerStore.all(), publicKey: options.publicKey });
+      } else {
+        integrity = REC.proof([Sx.claim("Record signed + hash-chained" + (state.record ? " (seq " + state.record.seq + ")" : "") + "; re-verify offline with the device key.", ["ledger"], Sx.SELF_VERIFIABLE, "re-derivable offline with the device public key")]);
+      }
+      var artifacts = [];
+      if (state.model_id && state.model_id !== "none") artifacts.push({ kind: "model " + state.model_id, id: state.model_id });
+      if (gov.policy_bundle_hash) artifacts.push({ kind: "policy bundle", id: gov.policy_bundle_hash });
+      var provenance = artifacts.length ? await PF.provenance.buildProvenanceProof(artifacts) : null;
+      var memItems = (state._memEntries || []).map(function (e) { return { id: e.id, type: e.type || "FACT", content: e.content }; });
+      var memory = memItems.length ? await PF.memory.buildMemoryProof(memItems) : null;
+      var grounding = ((state._memEntries || []).length && state.output_text)
+        ? PF.grounding.buildGroundingProof({ claims: [{ text: state.output_text }], sources: state._memEntries.map(function (e) { return { id: e.id, span: e.content }; }) })
+        : null;
+      var gwLike = { isSealed: function () { return !leftDevice; }, privacyClaim: function () { return leftDevice ? { strength: "runtime-attested", requests: 1, bytes: 0, blocked: 0 } : { strength: "egress-attested:sealed-door", requests: 0, bytes: 0 }; } };
+      var privacy = PF.privacy.buildPrivacyProof(gwLike, null);
+      var decision = null;
+      if (kind === "model") {
+        var rejected = (state.eligibility && state.eligibility.rejected) ? state.eligibility.rejected.map(function (r) { return { id: r.provider_id, reason: (r.reasons || []).join(","), kind: "policy" }; }) : [];
+        decision = PF.decision.buildDecisionProof({ selected: state.selected_provider, classification: classification, policyHash: gov.policy_bundle_hash, eligible: [state.selected_provider], rejected: rejected });
+      }
+      var trace = (state.path || []).map(function (p) { return { step: p.stage, detail: p.detail, strength: Sx.SELF_VERIFIABLE, status: p.status || "ok" }; });
+      var rec = state.record || {};
+      var record = REC.buildTrustRecord({
+        chain: { seq: rec.seq != null ? rec.seq : 0, prev_hash: rec.prev_hash || "none", record_hash: rec.record_hash || "none", signature: rec.signature || "none" },
+        intent_id: state.intent ? state.intent.intent_id : "i", timestamp: options.created_at || null,
+        integrity: integrity, provenance: provenance, grounding: grounding, decision: decision, privacy: privacy, memory: memory, trace: trace
+      });
+      var v = REC.validateTrustRecord(record);
+      state.trust_record = record; state.trust_record_valid = v.ok;
+      if (!v.ok) state.trust_record_issues = v.issues;
+      return record;
+    } catch (e) { state.trust_record_error = (e && e.message) || String(e); return null; }
+  }
 
   function spineEntries(memories) {
     return (memories || []).map(function (m) { return { id: m.memory_id, content: m.content, user_verified: true, superseded_by: null }; });
@@ -118,6 +165,8 @@
     // the model is called 0×. OFF → skipped entirely (byte-identical; 4b runs instead).
     var governedFacts = (options.governedFacts !== undefined) ? !!options.governedFacts
                       : !!(SPINE && SPINE.FLAGS && SPINE.FLAGS.FLAG_GOVERNED_FACTS);
+    var trustOS = (options.trustOS !== undefined) ? !!options.trustOS
+                : !!(SPINE && SPINE.FLAGS && SPINE.FLAGS.FLAG_TRUST_OS);
     if (governedFacts && GATE) {
       var gResolved = (SPINE && SPINE.resolveRuntimeIdentity)
         ? SPINE.resolveRuntimeIdentity(options.identityConfig || { assistantName: options.userPersonaName || null, userName: options.userName || null }, appIdentity)
@@ -164,6 +213,7 @@
         if (isIdentityFact) state.identity = { source: GRI.assistantNameSource || "default", kind: gres.factId.slice("identity:".length), assistant_name: GRI.assistantDisplayName || "AUBS", assistant_name_source: GRI.assistantNameSource || "default", app_id: GRI.appId || "aubs", model_called: false };
         state.explanation = "Answered from a runtime-owned governed fact (" + gres.factId + "). Model was not called.";
         step("Explanation", state.explanation);
+        if (trustOS) await assembleTrustRecord(state, request, options, "governed_fact");
         return state;
       }
       // not a governed fact → open-ended; fall through to the model. The legacy 4b
@@ -322,8 +372,10 @@
     if (PROVEN) state.provenance = state.selected_provider ? PROVEN.model(modelId, state.selected_provider)
                                                          : PROVEN.deterministic(toolOut ? "tool" : "answer", state.selected_provider || "local");
     state.output_text = outputText; state.grounding = grounding;
+    state.model_id = modelId; state._memEntries = memEntries;
     state.explanation = level1(terminalKind, status, leftDevice);
     step("Explanation", state.explanation);
+    if (trustOS) await assembleTrustRecord(state, request, options, "model");
     return state;
   }
 

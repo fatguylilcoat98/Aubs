@@ -21,6 +21,7 @@
   var PROV     = isNode ? require("../providers")        : (typeof window !== "undefined" ? window.AUBS_PROVIDERS : null);
   var SKILLREG = isNode ? require("../skills/registry")  : (typeof window !== "undefined" ? window.AUBS_SKILL_REGISTRY : null);
   var PIPE     = isNode ? require("./pipeline")          : (typeof window !== "undefined" ? window.AUBS_CONSTITUTION_PIPELINE : null);
+  var TRUST    = isNode ? require("../trust")            : (typeof window !== "undefined" ? window.AUBS_TRUST : null);
 
   // The on-device chat skill: a low-risk, fully-local capability that DECLARES exactly one
   // provider (the local model) and nothing else — no tools, no network, no memory scopes.
@@ -97,6 +98,10 @@
       // Default reads FLAG_GOVERNED_FACTS in the pipeline; runtime carries version/creator metadata.
       governedFacts: opts.governedFacts,
       runtime: opts.runtime || null,
+      // Trust OS wire-up: emit a validated Trust Record (FLAG_TRUST_OS). publicKey upgrades the
+      // Integrity proof to a full offline chain re-verify.
+      trustOS: opts.trustOS,
+      publicKey: opts.publicKey || null,
       // Unified Identity: the resolver reads this config (assistant name / user name / style).
       identityConfig: opts.identityConfig || null,
       userPersonaName: opts.userPersonaName || null,
@@ -136,7 +141,12 @@
       identity: state.identity || null,
       // A2.1 explainability invariant: every response carries internal provenance —
       // who owned it, where it came from, whether the model was consulted, and why.
-      provenance: state.provenance || null
+      provenance: state.provenance || null,
+      // Trust OS: the full per-turn Trust Record (when FLAG_TRUST_OS on), plus the one-line
+      // Glass Box "Easy" view rendered from it. Absent (null) when the flag is off.
+      trust_record: state.trust_record || null,
+      trust_valid: state.trust_record_valid === true,
+      glass_box_easy: (state.trust_record && TRUST && TRUST.glassBox) ? (function () { try { return TRUST.glassBox.render(state.trust_record, { mode: "easy" }).text; } catch (e) { return null; } })() : null
     };
   }
 
