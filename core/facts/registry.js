@@ -73,6 +73,26 @@
   function isVersionQuery(q) {
     return /\b(?:what\s+(?:version|build)\s+are\s+you|your\s+(?:version|build)|which\s+version|what(?:'?s| is)\s+your\s+version|version\s+number|what\s+build)\b/i.test(String(q || ""));
   }
+  // Reality context — date/time the RUNTIME owns (the model hallucinates these, e.g. "Jan 1 2023").
+  function isDateQuery(q) {
+    return /\b(?:what(?:'?s| is)\s+(?:the\s+|today'?s\s+|current\s+|the\s+current\s+)?date|what\s+day\s+is\s+it|what(?:'?s| is)\s+today(?:'?s\s+date)?|today'?s\s+date|current\s+date|what\s+year\s+is\s+it)\b/i.test(String(q || ""));
+  }
+  function isTimeQuery(q) {
+    return /\b(?:what(?:'?s| is)\s+the\s+time|what\s+time\s+is\s+it|current\s+time)\b/i.test(String(q || ""));
+  }
+  var DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  var MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  // Deterministic UTC formatter from an ISO `now`. The runtime may instead pass a pre-formatted
+  // LOCAL string (ctx.runtime.dateStr / timeStr); that takes precedence for correct local time.
+  function fmtDateUTC(now) {
+    var d = new Date(now); if (isNaN(d.getTime())) return null;
+    return DAYS[d.getUTCDay()] + ", " + MONTHS[d.getUTCMonth()] + " " + d.getUTCDate() + ", " + d.getUTCFullYear();
+  }
+  function fmtTimeUTC(now) {
+    var d = new Date(now); if (isNaN(d.getTime())) return null;
+    var h = d.getUTCHours(), m = d.getUTCMinutes();
+    return (h % 12 || 12) + ":" + (m < 10 ? "0" + m : m) + " " + (h < 12 ? "AM" : "PM") + " UTC";
+  }
 
   function capabilityStatement(ctx) {
     var caps = ctx && ctx.runtime && ctx.runtime.capabilities;
@@ -130,6 +150,31 @@
       }
     },
 
+    // 3b) REALITY — date/time owned by the runtime (never the model). Prefers a runtime-supplied
+    //     LOCAL string; falls back to deterministic UTC from ctx.runtime.now; honest if neither.
+    {
+      id: "reality_date",
+      owner: "device clock / runtime",
+      modelMayOriginate: false,
+      match: function (q, ctx) {
+        if (!isDateQuery(q)) return null;
+        var rt = (ctx && ctx.runtime) || {};
+        var ds = rt.dateStr || fmtDateUTC(rt.now);
+        return { answer: ds ? ("Today is " + ds + ".") : "I don't have the current date from this device right now." };
+      }
+    },
+    {
+      id: "reality_time",
+      owner: "device clock / runtime",
+      modelMayOriginate: false,
+      match: function (q, ctx) {
+        if (!isTimeQuery(q)) return null;
+        var rt = (ctx && ctx.runtime) || {};
+        var ts = rt.timeStr || fmtTimeUTC(rt.now);
+        return { answer: ts ? ("It's " + ts + ".") : "I don't have the current time from this device right now." };
+      }
+    },
+
     // 4) IDENTITY — the catch-all "who/what are you", name, acronym, introduce,
     //    user-name. Delegated wholesale to the spine's one router. Runs AFTER the
     //    specific owners so it can no longer over-capture creator/capability.
@@ -171,6 +216,10 @@
     isCreatorQuery: isCreatorQuery,
     isCapabilityListQuery: isCapabilityListQuery,
     isVersionQuery: isVersionQuery,
+    isDateQuery: isDateQuery,
+    isTimeQuery: isTimeQuery,
+    fmtDateUTC: fmtDateUTC,
+    fmtTimeUTC: fmtTimeUTC,
     capabilityStatement: capabilityStatement
   };
   if (typeof module !== "undefined" && module.exports) module.exports = API;
