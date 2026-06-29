@@ -133,7 +133,10 @@
       execution_type: state.record ? state.record.execution_type : null,
       // Slice 0: when the answer came from the app-declared identity route, surface that the
       // model was NOT called and who declared the identity (for an honest "Why?").
-      identity: state.identity || null
+      identity: state.identity || null,
+      // A2.1 explainability invariant: every response carries internal provenance —
+      // who owned it, where it came from, whether the model was consulted, and why.
+      provenance: state.provenance || null
     };
   }
 

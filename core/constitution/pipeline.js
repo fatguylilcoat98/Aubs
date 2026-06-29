@@ -28,6 +28,7 @@
   var KEXPL   = isNode ? require("../kernel/explanation") : (typeof window !== "undefined" ? window.AUBS_KERNEL_EXPLANATION : null);
   var SPINE   = isNode ? require("../../spine/spine.js") : (typeof window !== "undefined" ? window.AUBS_SPINE : null);
   var GATE    = isNode ? require("../facts/gate") : (typeof window !== "undefined" ? window.AUBS_FACT_GATE : null);
+  var PROVEN  = isNode ? require("../facts/provenance") : (typeof window !== "undefined" ? window.AUBS_PROVENANCE : null);
 
   function spineEntries(memories) {
     return (memories || []).map(function (m) { return { id: m.memory_id, content: m.content, user_verified: true, superseded_by: null }; });
@@ -82,6 +83,7 @@
     async function finishBlocked(stage, reason, leftDevice) {
       step(stage, reason, "blocked");
       state.status = "blocked";
+      if (PROVEN) state.provenance = PROVEN.blocked(stage, reason);
       await writeRecord({ input: request.user_text || "", output: "", execution_type: "blocked", memory_refs: [], policy_version: state.governance ? state.governance.policy_bundle_hash : "none", explanation: blockExplanation(stage, reason, leftDevice) });
       step("DecisionRecord", "blocked", "ok"); step("Ledger", state.record ? "appended" : "n/a", "ok");
       state.explanation = level1("blocked", "blocked", leftDevice);
@@ -157,6 +159,7 @@
           step("Replay", "evidence captured");
         }
         state.governed_fact = { fact_id: gres.factId, owner: gres.owner, model_called: false };
+        if (PROVEN) state.provenance = PROVEN.governed(gres.factId, gres.owner);
         // keep the identity surface for identity-kind facts (so the UI "Why?" still works)
         if (isIdentityFact) state.identity = { source: GRI.assistantNameSource || "default", kind: gres.factId.slice("identity:".length), assistant_name: GRI.assistantDisplayName || "AUBS", assistant_name_source: GRI.assistantNameSource || "default", app_id: GRI.appId || "aubs", model_called: false };
         state.explanation = "Answered from a runtime-owned governed fact (" + gres.factId + "). Model was not called.";
@@ -216,6 +219,7 @@
         step("Replay", "evidence captured");
       }
       state.identity = { source: idSource, kind: idRoute.kind, assistant_name: RI.assistantDisplayName, assistant_name_source: RI.assistantNameSource, app_id: RI.appId || "aubs", model_called: false };
+      if (PROVEN) state.provenance = PROVEN.governed("identity:" + idRoute.kind, "spine:identityRoute");
       state.explanation = idWhy;
       step("Explanation", state.explanation);
       return state;
@@ -315,6 +319,8 @@
     } else { step("Replay", "n/a"); }
 
     // 13) Level 1 Explanation (from recorded state)
+    if (PROVEN) state.provenance = state.selected_provider ? PROVEN.model(modelId, state.selected_provider)
+                                                         : PROVEN.deterministic(toolOut ? "tool" : "answer", state.selected_provider || "local");
     state.output_text = outputText; state.grounding = grounding;
     state.explanation = level1(terminalKind, status, leftDevice);
     step("Explanation", state.explanation);
