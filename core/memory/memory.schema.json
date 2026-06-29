@@ -1,0 +1,39 @@
+{
+  "$id": "aubs/memory/tsm",
+  "title": "AUBS Typed Scoped Memory record v0.1",
+  "description": "A governed memory asset. Carries ownership, scope, provenance, confidence, lifecycle, and tamper-evidence (prev_hash/record_hash/signature added by the store). Append-only: a delete is a superseding/deactivating record, never a physical erase.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["record_version", "memory_id", "type", "user_id", "owner", "scope", "content", "inferred", "confidence", "source_classification", "provenance", "created_at"],
+  "properties": {
+    "record_version": { "const": "tsm-1" },
+    "memory_id":      { "type": "string", "minLength": 1 },
+    "type":           { "enum": ["FACT", "PREFERENCE", "PROFILE", "TASK", "DOCUMENT", "SUMMARY", "SYSTEM", "INFERENCE"] },
+    "user_id":        { "type": "string", "minLength": 1 },
+    "owner":          { "type": "string", "minLength": 1 },
+    "scope":          { "enum": ["private", "conversation", "workspace", "family", "organization", "device"] },
+    "read_scopes":    { "type": "array", "items": { "type": "string" } },
+    "content":        { "type": ["string", "null"] },
+    "inferred":       { "type": "boolean" },
+    "confidence":     { "type": "number" },
+    "source_classification": { "enum": ["user_stated", "model_inferred", "document", "system", "imported"] },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp"],
+      "properties": {
+        "created_from":    { "type": ["string", "null"] },
+        "conversation_id": { "type": ["string", "null"] },
+        "decision_record": { "type": ["string", "null"] },
+        "source":          { "type": ["string", "null"] },
+        "timestamp":       { "type": "string" }
+      }
+    },
+    "evidence_refs":  { "type": "array", "items": { "type": "string" } },
+    "supersedes":     { "type": ["string", "null"] },
+    "deleted":        { "type": "boolean" },
+    "created_at":     { "type": "string" },
+    "updated_at":     { "type": ["string", "null"] },
+    "expires_at":     { "type": ["string", "null"] }
+  }
+}

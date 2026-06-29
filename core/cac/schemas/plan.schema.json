@@ -19,7 +19,7 @@
         "additionalProperties": false,
         "required": ["step_type"],
         "properties": {
-          "step_type": { "enum": ["memory_read", "retrieve", "model_call", "tool_call", "deterministic_answer", "refusal"] },
+          "step_type": { "enum": ["memory_read", "memory_write", "retrieve", "model_call", "tool_call", "deterministic_answer", "refusal"] },
           "target":    { "type": "string" },
           "egress":    { "enum": ["none", "redacted", "full"] },
           "detail":    { "type": "string" }

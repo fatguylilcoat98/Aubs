@@ -144,6 +144,7 @@
             "step_type": {
               "enum": [
                 "memory_read",
+                "memory_write",
                 "retrieve",
                 "model_call",
                 "tool_call",
