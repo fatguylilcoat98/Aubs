@@ -1,0 +1,19 @@
+{
+  "$id": "aubs/tools/tool",
+  "title": "AUBS Tool Descriptor v0.1",
+  "description": "The serializable part of a constitutional tool. Runtime methods (healthCheck/execute/metadata) are validated structurally by the Drift Shield, not by this schema. A tool exposes ONLY its declared operations; the kernel authorizes, the model only requests.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tool_id", "tool_type", "version", "permissions_required", "requires_network", "requires_user_confirmation", "supported_operations"],
+  "properties": {
+    "tool_id":                    { "type": "string", "minLength": 1 },
+    "tool_type":                  { "enum": ["filesystem", "calendar", "contacts", "camera", "microphone", "http", "websocket", "shell", "database", "mcp", "future"] },
+    "version":                    { "type": "string", "minLength": 1 },
+    "permissions_required":       { "type": "array", "items": { "type": "string" } },
+    "requires_network":           { "type": "boolean" },
+    "requires_user_confirmation": { "type": "boolean" },
+    "supported_operations":       { "type": "array", "items": { "type": "string" } },
+    "enabled":                    { "type": "boolean" },
+    "device_capabilities":        { "type": "array", "items": { "type": "string" } }
+  }
+}
