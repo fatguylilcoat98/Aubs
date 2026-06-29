@@ -1,0 +1,44 @@
+{
+  "version": "golden-relevance-v1",
+  "spine_target": "cp0-spine-1.1.0",
+  "purpose": "Checkpoint 0.6 — deterministic relevance guard for verified grounding. A response may be tagged grounded ONLY if a cited, valid, user_verified, non-superseded memory id is also RELEVANT to the query. '[ID:#k]' / '[m_#k]' tokens are replaced by the runner with entries[k].id.",
+  "cases": [
+    { "id": "R1", "name": "correct ID + relevant memory -> grounded",
+      "memory": ["User's name is Chris"], "query": "What's my name?",
+      "answer": "Your name is Chris. [ID:#0]", "tolerant": false, "expect_grounded": true },
+
+    { "id": "R2", "name": "correct ID format + irrelevant memory -> not grounded",
+      "memory": ["User's name is Chris", "User lives in Sacramento"], "query": "Where do I live?",
+      "answer": "You live in Sacramento. [ID:#0]", "tolerant": false, "expect_grounded": false,
+      "note": "Cites the NAME memory (#0) for a location question." },
+
+    { "id": "R3", "name": "valid but wrong in-prompt ID -> not grounded",
+      "memory": ["User likes tea", "User lives in Sacramento"], "query": "Where do I live?",
+      "answer": "You live in Sacramento. [ID:#0]", "tolerant": false, "expect_grounded": false,
+      "note": "Cites #0 = 'User likes tea' for a location question." },
+
+    { "id": "R4a", "name": "[m_x] shorthand + relevant -> grounded (tolerant)",
+      "memory": ["User's name is Chris"], "query": "What's my name?",
+      "answer": "[#0] Chris", "tolerant": true, "expect_grounded": true },
+
+    { "id": "R4b", "name": "[m_x] shorthand + irrelevant -> not grounded (tolerant)",
+      "memory": ["User's name is Chris"], "query": "What's my wifi password?",
+      "answer": "[#0] it is 1234", "tolerant": true, "expect_grounded": false },
+
+    { "id": "R5", "name": "conflicting memories -> not grounded",
+      "memory": ["User loves coffee", "User hates coffee"], "conflict": true, "query": "Do I like coffee?",
+      "answer": "You've told me both. [ID:#0]", "tolerant": false, "expect_grounded": false },
+
+    { "id": "R6", "name": "identity query citing user memory -> not grounded",
+      "memory": ["User's name is Chris"], "query": "Who are you?",
+      "answer": "I am AUBS. [ID:#0]", "tolerant": false, "expect_grounded": false },
+
+    { "id": "R7", "name": "unrelated query with valid citation -> not grounded",
+      "memory": ["User's name is Chris"], "query": "What's the capital of France?",
+      "answer": "Paris. [ID:#0]", "tolerant": false, "expect_grounded": false },
+
+    { "id": "R8", "name": "wifi password false citation (from findings) -> not grounded",
+      "memory": ["User's name is Chris"], "query": "What's my wifi password?",
+      "answer": "Your wifi password is 1234. [ID:#0]", "tolerant": false, "expect_grounded": false }
+  ]
+}

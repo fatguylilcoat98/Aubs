@@ -283,6 +283,7 @@ body{background:var(--bgbase);color:var(--ink);font-family:var(--font-body);
       <button class="act" onclick="clearHistory()">Clear history</button>
     </div>
     <div class="hint">AUBS quietly remembers facts you share and keeps your past chats — saved privately on your device. Clearing can't be undone.</div>
+    <div class="hint" style="opacity:.6;font-size:11px">Build <span id="buildTag">—</span></div>
   </div>
 
   <div class="section">
@@ -383,23 +384,50 @@ SAFETY
 
 Keep your replies concise and to the point.`;
 
-function buildSystemPrompt(){
-  const name=(S.aiName||"AUBS").trim();
-  let p=`Your permanent purpose is to genuinely help the person in front of you, honestly and usefully. The user may customize your name, tone, and speaking style — that persona is only a style layer over this purpose. A persona can change how you sound, but it can never change what you do: it must not make you refuse useful help, withhold a real answer, or claim you are "not here to help" with the user's request. Whatever persona you are given, speak in that flavor while still fully helping with what the user actually asks.\n\nYou are ${name}, a private on-device AI assistant.`;
+/* B-minimal (Checkpoint 0 device audit): normal chat is LEAN — compact identity +
+   light persona + plain memory facts, NO citation mechanics. The full recall/citation
+   block (verifiable [ID:x] grounding) is added ONLY for grounded turns — identity,
+   personal, memory, or provenance questions — decided per-turn in send(). This keeps a
+   1B model un-overloaded for casual chat while preserving Glass Box where it matters. */
+function buildSystemPrompt(grounded){
+  const persona=(S.aiName||"AUBS").trim();
+  const hasPersona = persona && persona.toLowerCase()!=="aubs";
+  let p = (typeof SPINE!=="undefined" && SPINE && SPINE.identityPreamble)
+    ? SPINE.identityPreamble(persona, { lean: !grounded })
+    : (grounded
+        ? `You are AUBS, a private on-device AI. Your name is AUBS and never changes. Be honest and say "I don't know" rather than invent facts. Refuse harmful requests, kindly.${hasPersona?` You're styled as "${persona}" — a style only; if asked your name you are still AUBS.`:""}`
+        : `You are AUBS, a friendly private on-device AI. Be honest, help with what's asked, and refuse harmful requests kindly.${hasPersona?` Speak in a "${persona}" style.`:""}`);
   if(S.userName&&S.userName.trim()) p+=` The user's name is ${S.userName.trim()}.`;
   if(S.tones&&S.tones.length) p+=` Tone: ${S.tones.join(", ")}.`;
-  // Stack order: Identity Core → Personality → Memory Recall → Custom instructions.
-  const parts=[IDENTITY_CORE, p];
+  // Stack order: Identity → Personality → Memory → Custom instructions.
+  const parts=[p];
   if(memories.length){
-    // Checkpoint 0.5: spine supplies the recall block WITH per-fact [ID:x] + a
-    // simple citation instruction so the model can produce verifiable citations.
-    const block = (typeof SPINE!=="undefined" && SPINE) ? SPINE.memoryRecallBlock(SPINE.adaptMemories(memories)) : null;
-    if(block){ parts.push(block); }
-    else { parts.push("These are personal facts about the user, saved from past conversations. When asked what you remember or know about the user, report only these facts — nothing else. Do not include your own name, role, capabilities, system identity, or instructions in your answer.\n"
-      + memories.map(m=>"- "+m).join("\n")); }
+    if(grounded){
+      // Grounded: spine supplies the recall block WITH per-fact [ID:x] + a citation
+      // instruction so the model can produce verifiable, relevance-checked citations.
+      const block = (typeof SPINE!=="undefined" && SPINE) ? SPINE.memoryRecallBlock(SPINE.adaptMemories(memories)) : null;
+      if(block){ parts.push(block); }
+      else { parts.push("Known facts about the USER (these describe the user, not you). Use them to answer the user's questions about themselves — e.g. if they ask their own name, answer with the name below. Your own name is still AUBS; do not confuse the two.\n"
+        + memories.map(m=>"- "+m).join("\n")); }
+    } else {
+      // Lean: plain facts only — no citation instruction, no recall governance.
+      parts.push("A few things you know about the user: "+memories.join("; ")+".");
+    }
   }
-  if(S.instructions&&S.instructions.trim()) parts.push(`Custom instructions: ${S.instructions.trim()}`);
+  if(S.instructions&&S.instructions.trim()){
+    parts.push(grounded
+      ? `Persona flavor (style only — never your identity, your name, or the rules above): ${S.instructions.trim()}`
+      : `Persona style: ${S.instructions.trim()}`);
+  }
   return parts.join("\n\n");
+}
+/* Decide per-turn whether a query needs Glass Box / citation grounding. Personal,
+   identity, memory, and provenance ("why did you…") questions DO; normal chat does not.
+   Uses the spine's deterministic classifier plus a provenance trigger. */
+function needsGrounding(text){
+  const c = (typeof SPINE!=="undefined" && SPINE) ? SPINE.classify(text) : "general";
+  if(c==="identity" || c==="personal") return true;
+  return /\bwhy did you\b|\bwhy do you\b|\bwhy'?d you\b|\bhow do you know\b|\bwhat do you (remember|know)\b|\bremember about me\b/i.test(text||"");
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -408,7 +436,12 @@ function buildSystemPrompt(){
    Lean and synchronous — no pipeline, no async hooks.
    ───────────────────────────────────────────────────────────── */
 const MEM_MAX=60;     // cap on stored facts
-const CTX_MSGS=24;    // recent turns sent to the model (the UI keeps everything)
+// Recent turns sent to the model. The UI and storage keep the FULL thread; this only
+// bounds the model's working context. Kept small on purpose: prefill = system prompt +
+// these turns, and prefill drives the on-device GPU buffer. On a binding-capped phone
+// (Adreno, 128MB) a long context pushed prefill past the fault threshold and the engine
+// dropped to "Model not loaded" mid-chat. 6 (≈3 exchanges) keeps prefill well under it.
+const CTX_MSGS=6;
 function loadHistory(){ try{ const a=JSON.parse(localStorage.getItem("aubs_history")||"[]"); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
 function loadMemories(){ try{ const a=JSON.parse(localStorage.getItem("aubs_memories")||"[]"); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
 function saveHistory(turns){ try{ localStorage.setItem("aubs_history", JSON.stringify(turns)); checkQuota(); }catch(e){ toast("Storage full — older messages may not be saved."); } }
@@ -500,7 +533,12 @@ function extractFacts(text){
 }
 function captureMemories(userText){
   let changed=false;
-  for(const f of extractFacts(userText)){
+  // Bug-1 fix: prefer the spine's centralized, unit-tested extractor (handles
+  // "im chris" / lowercase / mid-sentence). Falls back to the local one if the
+  // spine isn't loaded.
+  const facts = (typeof SPINE!=="undefined" && SPINE && SPINE.extractFacts)
+    ? SPINE.extractFacts(userText) : extractFacts(userText);
+  for(const f of facts){
     if(!f || f.length<5 || f.length>140) continue;
     const norm=f.toLowerCase();
     if(memories.some(x=>x.toLowerCase()===norm)) continue;   // dedup — never store the same fact twice
@@ -546,16 +584,54 @@ function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg
 
 applyAppearance();
 
+// Build marker — lets us confirm on-device exactly which code is live (the service
+// worker can otherwise serve a stale spine.js / HTML). Bump this with each shipped change.
+const BUILD="cp0-devaudit-5 · lean-chat+recovery";
+console.log("[AUBS] build:", BUILD, "· spine:", (typeof SPINE!=="undefined"&&SPINE)?SPINE.SPINE_VERSION:"NOT LOADED");
+(function(){ const el=document.getElementById('buildTag'); if(el) el.textContent=BUILD+(typeof SPINE!=="undefined"&&SPINE?(" · spine "+SPINE.SPINE_VERSION):" · spine MISSING"); })();
+
 const MODELS={
-  fast:{ f16:["Llama-3.2-1B-Instruct-q4f16_1-MLC","Qwen2.5-1.5B-Instruct-q4f16_1-MLC","TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC"],
-         f32:["Llama-3.2-1B-Instruct-q4f32_1-MLC","Qwen2.5-1.5B-Instruct-q4f32_1-MLC","TinyLlama-1.1B-Chat-v1.0-q4f32_1-MLC","SmolLM2-1.7B-Instruct-q4f32_1-MLC"] },
-  smart:{ f16:["Llama-3.2-3B-Instruct-q4f16_1-MLC","Qwen2.5-3B-Instruct-q4f16_1-MLC"],
+  fast:{ f16:["Llama-3.2-1B-Instruct-q4f16_1-MLC","Qwen2.5-1.5B-Instruct-q4f16_1-MLC","SmolLM2-1.7B-Instruct-q4f16_1-MLC","TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC"],
+         f32:["Llama-3.2-1B-Instruct-q4f32_1-MLC","Qwen2.5-1.5B-Instruct-q4f32_1-MLC","SmolLM2-1.7B-Instruct-q4f32_1-MLC","TinyLlama-1.1B-Chat-v1.0-q4f32_1-MLC"] },
+  smart:{ f16:["Llama-3.2-3B-Instruct-q4f16_1-MLC","Qwen2.5-3B-Instruct-q4f16_1-MLC","Phi-3.5-mini-instruct-q4f16_1-MLC"],
           f32:["Llama-3.2-3B-Instruct-q4f32_1-MLC","Qwen2.5-3B-Instruct-q4f32_1-MLC","Phi-3.5-mini-instruct-q4f32_1-MLC"] }
 };
+// Small-vocabulary models — their embedding/output buffers stay well under a tight
+// mobile GPU binding limit (Adreno ~128MB). Large-vocab models (Llama-3.2 128k,
+// Qwen2.5 152k) overflow it and trigger the mapAsync buffer fault.
+const SMALL_VOCAB=/TinyLlama|SmolLM|Phi-3/i;
 const AVAILABLE=(webllm.prebuiltAppConfig?.model_list||[]).map(m=>m.model_id);
-let hasF16=false;
-async function detectF16(){ try{ const a=await navigator.gpu.requestAdapter(); hasF16=!!(a&&a.features&&a.features.has("shader-f16")); }catch(e){ hasF16=false; } return hasF16; }
+let hasF16=false, gpuLimits=null, gpuVendor="";
+async function detectF16(){
+  try{
+    const a=await navigator.gpu.requestAdapter();
+    hasF16=!!(a&&a.features&&a.features.has("shader-f16"));
+    if(a&&a.limits) gpuLimits={ maxBufferSize:a.limits.maxBufferSize, maxStorageBufferBindingSize:a.limits.maxStorageBufferBindingSize };
+    try{ if(a&&a.requestAdapterInfo){ const info=await a.requestAdapterInfo(); gpuVendor=((info.vendor||"")+" "+(info.architecture||"")).trim(); } }catch(e){}
+  }catch(e){ hasF16=false; }
+  return hasF16;
+}
+// A GPU whose single-buffer binding limit is tight (mobile/Adreno ~128MB) can't fit
+// the embedding/output buffers of large-vocab models -> use small-vocab models instead.
+function bindingTight(){
+  const lim=gpuLimits&&gpuLimits.maxStorageBufferBindingSize;
+  return !!lim && lim <= 160*1048576;   // <=160MB
+}
+// Compact device/model diagnostic — shown in errors so we can see what's actually loaded.
+function gpuDiagStr(){
+  const mb=(b)=>b?Math.round(b/1048576)+"MB":"?";
+  return (chosenModel||"?")+" · f16:"+hasF16+(gpuLimits?(" · maxBuf:"+mb(gpuLimits.maxBufferSize)+" · maxBind:"+mb(gpuLimits.maxStorageBufferBindingSize)+(bindingTight()?" · TIGHT":"")):"")+(gpuVendor?(" · "+gpuVendor):"");
+}
+// No engine chatOpts override. Passing context_window_size deterministically
+// faulted the first inference on this Adreno GPU (KV-cache mismatch), while the
+// test harness — which passes NO chatOpts — produced text on the same device.
+// We let web-llm use the model's own compiled config.
 function resolve(tier){
+  // The binding-limit/small-vocab theory was disproven on-device (a small-vocab
+  // model faulted identically). The real fault was the chatOpts override + an
+  // intermittent GPU race, now handled by removing the override and retrying.
+  // Use the harness-proven order (Llama-3.2 first); small-vocab models remain as
+  // fallbacks in the lists.
   const order=hasF16?[...MODELS[tier].f16,...MODELS[tier].f32]:[...MODELS[tier].f32,...MODELS[tier].f16];
   for(const id of order) if(AVAILABLE.includes(id)) return id;
   return AVAILABLE.find(id=>/q4f32/i.test(id)&&/instruct|chat/i.test(id))||AVAILABLE[0];
@@ -573,10 +649,11 @@ window.startDownload=async function(tier){
   document.getElementById('dlTitle').textContent=tier==='fast'?'Downloading Fast…':'Downloading Smart…';
   setPct(0,"Checking your device…");
   await detectF16(); chosenModel=resolve(tier); setPct(0,"Starting…");
+  console.log("[AUBS] device:", gpuDiagStr());            // visible with remote debugging
   try{
     engine=await webllm.CreateMLCEngine(chosenModel,{ initProgressCallback:(r)=>{
       const pct=Math.round((r.progress||0)*100); setPct(pct,r.text||"Loading…");
-      document.getElementById('dlSub').textContent=pct<100?"Downloading and preparing the model. This happens once — then it's offline forever.":"Almost ready…";
+      document.getElementById('dlSub').textContent=pct<100?("Loading "+chosenModel+" — happens once, then offline."):"Almost ready…";
     }});
     enterChat(tier);
   }catch(err){
@@ -590,6 +667,16 @@ function enterChat(tier){ currentTier=tier; document.getElementById('chatModel')
 function show(id){ document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active')); document.getElementById(id).classList.add('active'); }
 window.grow=(t)=>{ t.style.height='auto'; t.style.height=Math.min(t.scrollHeight,120)+'px'; };
 window.keys=(e)=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); window.send(); } };
+/* Runtime recovery: recreate the engine after a WebGPU fault (mobile WebGPU can
+   leave the engine in a bad/disposed state). Recreating re-inits the GPU from the
+   cached model (no re-download). Returns true on success. */
+async function recoverEngine(){
+  try{ if(engine && engine.unload) await engine.unload(); }catch(e){}
+  try{
+    engine = await webllm.CreateMLCEngine(chosenModel, { initProgressCallback:()=>{} });
+    return true;
+  }catch(e){ console.error('[AUBS] engine recovery (reload) failed:', e); return false; }
+}
 window.send=async function(){
   const box=document.getElementById('box'); const text=box.value.trim();
   if(!text||!engine) return;
@@ -600,23 +687,61 @@ window.send=async function(){
   const aiWrap=document.createElement('div'); aiWrap.className='msg ai';
   aiWrap.innerHTML='<div class="who">'+S.aiName.toUpperCase()+'</div><div class="bubble"><span class="dots"><i></i><i></i><i></i></span></div>';
   thread.appendChild(aiWrap); const bubble=aiWrap.querySelector('.bubble'); thread.scrollTop=thread.scrollHeight; sendBtn.disabled=true;
-  let full=""; let finish="";
+  let full=""; let finish=""; let fatalErr=null;
   const t0=(window.performance&&performance.now)?performance.now():0;
+  // B-minimal: build THIS turn's system prompt — lean for normal chat, grounded
+  // (citation/recall block) only for identity/personal/provenance questions.
+  const grounded=needsGrounding(text);
+  history[0]={ role:"system", content: buildSystemPrompt(grounded) };
   const sent=contextMessages();                  // exact messages sent to the model (logged in provenance)
+  // Recoverable runtime faults: mobile WebGPU can lose/dispose the engine, after which
+  // calls report "Model not loaded". We recreate from cache and retry once (see below).
+  const RECOVERABLE=/GPUBuffer|mapAsync|unmapped|device is lost|Device is lost|disposed|not loaded|reload\(/i;
   try{
-    // primary: streaming
-    const chunks=await engine.chat.completions.create({ messages:sent, stream:true, temperature:0.7, max_tokens:512 });
-    for await (const c of chunks){
-      const ch=c.choices?.[0];
-      full += ch?.delta?.content || "";
-      if(ch?.finish_reason) finish=ch.finish_reason;
-      if(full){ bubble.textContent=full; thread.scrollTop=thread.scrollHeight; }
-    }
-    // fallback ONLY if literally nothing came back at all
-    if(full.length===0){
-      const res=await engine.chat.completions.create({ messages:sent, stream:false, temperature:0.7, max_tokens:512 });
-      full = res?.choices?.[0]?.message?.content || "";
-      finish = res?.choices?.[0]?.finish_reason || finish;
+    // Generate with AUTOMATIC recovery: on a WebGPU fault / disposed-or-unloaded
+    // engine, recreate it from the CACHED model (no re-download) and retry the SAME
+    // prompt ONCE. The `recovered` one-shot guard prevents any retry loop; the
+    // original exception is always logged before recovery.
+    const MAX_ATTEMPTS=2;
+    let recovered=false;
+    for(let attempt=1; attempt<=MAX_ATTEMPTS; attempt++){
+      try{
+        full="";
+        // primary: streaming
+        const chunks=await engine.chat.completions.create({ messages:sent, stream:true, temperature:0.7, max_tokens:256 });
+        for await (const c of chunks){
+          const ch=c.choices?.[0];
+          full += ch?.delta?.content || "";
+          if(ch?.finish_reason) finish=ch.finish_reason;
+          if(full){ bubble.textContent=full; thread.scrollTop=thread.scrollHeight; }
+        }
+        // fallback ONLY if literally nothing came back at all
+        if(full.length===0){
+          try{
+            const res=await engine.chat.completions.create({ messages:sent, stream:false, temperature:0.7, max_tokens:256 });
+            full = res?.choices?.[0]?.message?.content || "";
+            finish = res?.choices?.[0]?.finish_reason || finish;
+          }catch(nsErr){ console.warn('[AUBS] non-stream fallback failed:', nsErr); }
+        }
+        fatalErr=null; break;                       // generation completed
+      }catch(genErr){
+        fatalErr=genErr;
+        const msg=(genErr&&genErr.message?genErr.message:String(genErr));
+        console.error('[AUBS] inference error (attempt '+attempt+'):', genErr);  // (log the REAL exception)
+        if(RECOVERABLE.test(msg) && attempt<MAX_ATTEMPTS && !recovered){
+          // Engine lost/disposed/unloaded (mobile WebGPU). Recreate it from the CACHED
+          // model — no re-download — then retry the SAME prompt once. `recovered` makes
+          // this happen at most once per send, so it can never loop. The earlier build
+          // recreated mid-fault and raced; here we await a full reload before retrying.
+          recovered=true;
+          bubble.textContent="Reconnecting the engine…";
+          const ok=await recoverEngine();
+          if(!ok){ break; }                              // recovery failed -> real error below
+          await new Promise(r=>setTimeout(r, 300));      // let the GPU settle
+        }else{
+          break;                                          // non-recoverable, already recovered, or out of retries
+        }
+      }
     }
     if(full.length>0){
       bubble.textContent=full;                       // keep whatever the model produced
@@ -624,22 +749,15 @@ window.send=async function(){
       saveHistory(history.slice(1));                 // persist turns (not the system prompt)
       captureMemories(text);                         // auto-extract durable facts from the user's message
       logProvenanceFor(text, full, sent, t0, aiWrap); // Checkpoint 0 spine: write provenance + Glass Box trace
+    }else if(fatalErr){
+      // Recovery impossible -> show the REAL error, never a generic "refresh" message.
+      const m=(fatalErr.message||String(fatalErr));
+      console.error('[AUBS] unrecoverable:', m, '·', gpuDiagStr());
+      bubble.textContent = RECOVERABLE.test(m)
+        ? ("The on-device engine couldn't recover. ["+gpuDiagStr()+"] Error: "+m)
+        : ("Error: "+m+"  ["+gpuDiagStr()+"]");
     }else{
       bubble.textContent="(No text came back. finish: "+(finish||"?")+" · model: "+(chosenModel||"?")+". Tap send again.)";
-    }
-  }catch(err){
-    const msg=(err&&err.message?err.message:String(err));
-    // WebGPU buffer fault: the GPU engine was interrupted mid-run. Reset it and recover.
-    if(/GPUBuffer|mapAsync|unmapped|device is lost|Device is lost/i.test(msg)){
-      bubble.textContent="The on-device engine hiccupped. Resetting it — give me a sec, then resend.";
-      try{ if(engine.resetChat) await engine.resetChat(); }catch(e){}
-      try{
-        if(typeof history!=='undefined' && history.length){ /* keep convo; reload engine */ }
-        if(engine.reload && chosenModel){ await engine.reload(chosenModel); }
-      }catch(e2){ bubble.textContent="The engine needs a quick reload — pull down to refresh the page, then continue."; }
-      if(bubble.textContent.indexOf("Resetting")===0) bubble.textContent="Ready again — go ahead and resend that.";
-    }else{
-      bubble.textContent="Error: "+msg; console.error(err);
     }
   }finally{
     window.__busy=false; sendBtn.disabled=false; document.getElementById('box').focus(); thread.scrollTop=thread.scrollHeight;
@@ -664,7 +782,10 @@ function logProvenanceFor(query, answer, sentMsgs, t0, aiWrap){
     const idsInPrompt=live.map(e=>e.id);
     const meta=SPINE.buildPromptMeta(sentMsgs, idsInPrompt);
     const cls=SPINE.classify(query);
-    let r=SPINE.tagAnswer({ answer, memory_ids_in_prompt:idsInPrompt, entries, classification:cls });
+    // Checkpoint 0.6 (live): grounding now requires RELEVANCE — pass the user query so
+    // tagAnswer only grounds a cited memory that actually answers it. tolerantFormat
+    // accepts the [m_x] shorthand as well as [ID:x] (still gated by relevance).
+    let r=SPINE.tagAnswer({ answer, query, memory_ids_in_prompt:idsInPrompt, entries, classification:cls, tolerantFormat:true });
     let tag=r.tag, cited=r.memory_ids_cited;
     if(!SPINE.dangerFactCheck(answer).ok){ tag='unknown'; cited=[]; }   // Article 3b override
     const latency=((window.performance&&performance.now)?performance.now():0)-t0;
