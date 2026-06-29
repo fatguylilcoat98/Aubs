@@ -104,6 +104,19 @@ const on = (over) => Object.assign({ resolved: TOM, enabled: true }, over);
     m0.type === "governed_fact" && m0.factId === "user_profile" && /don't know that about you yet/i.test(m0.answer));
 }
 
+// ── REALITY — date/time owned by the runtime (model 0×; never hallucinated) ────────────────
+{
+  const d = C.classify("What is the current date?", on({ runtime: { dateStr: "Sunday, June 29, 2026" } }));
+  t("date → governed_fact reality_date, model 0×, from runtime local string",
+    d.type === "governed_fact" && d.factId === "reality_date" && d.answer === "Today is Sunday, June 29, 2026." && d.model_called === false);
+  const d2 = C.classify("what day is it", on({ runtime: { now: "2026-06-29T15:00:00Z" } }));
+  t("date from ISO now (UTC fallback) → contains June and 2026", /June/.test(d2.answer) && /2026/.test(d2.answer));
+  const tt = C.classify("what time is it", on({ runtime: { timeStr: "2:14 PM" } }));
+  t("time → governed_fact reality_time from runtime", tt.factId === "reality_time" && /2:14 PM/.test(tt.answer));
+  const dn = C.classify("What's the date?", on({}));  // no runtime time → honest, not hallucinated
+  t("date with no runtime clock → honest 'don't have it', never a made-up date", /don't have the current date/i.test(dn.answer));
+}
+
 // ── OPEN-ENDED — the only thing handed to the model ───────────────────────────────────────
 {
   t("'Write me an email' → open_ended", C.classify("Write me an email to my landlord.", on()).type === "open_ended");

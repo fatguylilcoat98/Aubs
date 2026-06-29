@@ -410,6 +410,8 @@ body{background:var(--bgbase);color:var(--ink);font-family:var(--font-body);
 <script src="core/facts/gate.js"></script>
 <script src="core/facts/provenance.js"></script>
 <script src="core/facts/bundle.js"></script>
+<!-- Persona System v1 — personality as owned runtime state (compile + guard). -->
+<script src="core/persona/persona.js"></script>
 <!-- Trust OS (Layers 1–9). Classic scripts: define window.AUBS_* globals only; inert unless
      FLAG_TRUST_OS (?trust=1). Load after spine/ledger + facts, before pipeline.js (reads AUBS_TRUST). -->
 <script src="core/trust/strengths.js"></script>
@@ -560,7 +562,19 @@ try{
 }catch(e){}
 function trustOsOn(){ return !!(FLAG_TRUST_OS && typeof window!=="undefined" && window.AUBS_TRUST); }
 // Governed-fact runtime metadata surfaced in Trust-OS turns (creator decided; version from build).
-function aubsRuntimeMetaFull(){ return { version:(typeof SPINE!=="undefined"&&SPINE)?SPINE.SPINE_VERSION:null, creator:"Christopher Hughes" }; }
+function aubsRuntimeMetaFull(){
+  // Reality context computed LOCALLY on the device (so the runtime owns date/time and the model
+  // never hallucinates them). dateStr/timeStr are local; `now` is the ISO fallback.
+  var meta={ version:(typeof SPINE!=="undefined"&&SPINE)?SPINE.SPINE_VERSION:null, creator:"Christopher Hughes" };
+  try{
+    var d=new Date(); var DY=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+    var MO=["January","February","March","April","May","June","July","August","September","October","November","December"];
+    meta.now=d.toISOString();
+    meta.dateStr=DY[d.getDay()]+", "+MO[d.getMonth()]+" "+d.getDate()+", "+d.getFullYear();
+    meta.timeStr=d.toLocaleTimeString([], {hour:"numeric", minute:"2-digit"});
+  }catch(_){}
+  return meta;
+}
 
 /* ── Milestone 0 — Ledger wiring (additive, behind FLAG_LEDGER) ──────────────────
    When ON, every provenance record is ALSO appended to a real append-only, hash-chained,
