@@ -1,0 +1,194 @@
+{
+  "dependency_graph": {
+    "planner_version": "constitution-0.1",
+    "nodes": [
+      {
+        "node_id": "Intent",
+        "node_type": "Deterministic",
+        "dependencies": [],
+        "required_resources": [],
+        "estimated_risk": "low",
+        "estimated_egress": "none",
+        "status": "planned"
+      },
+      {
+        "node_id": "CAC",
+        "node_type": "Deterministic",
+        "dependencies": [
+          "Intent"
+        ],
+        "required_resources": [],
+        "estimated_risk": "low",
+        "estimated_egress": "none",
+        "status": "planned"
+      },
+      {
+        "node_id": "Plan",
+        "node_type": "Deterministic",
+        "dependencies": [
+          "CAC"
+        ],
+        "required_resources": [],
+        "estimated_risk": "low",
+        "estimated_egress": "none",
+        "status": "planned"
+      },
+      {
+        "node_id": "GEL",
+        "node_type": "Deterministic",
+        "dependencies": [
+          "Plan"
+        ],
+        "required_resources": [],
+        "estimated_risk": "low",
+        "estimated_egress": "none",
+        "status": "planned"
+      },
+      {
+        "node_id": "Eligibility",
+        "node_type": "Deterministic",
+        "dependencies": [
+          "GEL"
+        ],
+        "required_resources": [],
+        "estimated_risk": "low",
+        "estimated_egress": "none",
+        "status": "planned"
+      },
+      {
+        "node_id": "Execution",
+        "node_type": "Deterministic",
+        "dependencies": [
+          "Eligibility"
+        ],
+        "required_resources": [],
+        "estimated_risk": "low",
+        "estimated_egress": "none",
+        "status": "planned"
+      },
+      {
+        "node_id": "Memory",
+        "node_type": "Deterministic",
+        "dependencies": [
+          "Execution"
+        ],
+        "required_resources": [],
+        "estimated_risk": "low",
+        "estimated_egress": "none",
+        "status": "planned"
+      },
+      {
+        "node_id": "Tools",
+        "node_type": "Deterministic",
+        "dependencies": [
+          "Memory"
+        ],
+        "required_resources": [],
+        "estimated_risk": "low",
+        "estimated_egress": "none",
+        "status": "planned"
+      },
+      {
+        "node_id": "Grounding",
+        "node_type": "Deterministic",
+        "dependencies": [
+          "Tools"
+        ],
+        "required_resources": [],
+        "estimated_risk": "low",
+        "estimated_egress": "none",
+        "status": "planned"
+      },
+      {
+        "node_id": "DecisionRecord",
+        "node_type": "Deterministic",
+        "dependencies": [
+          "Grounding"
+        ],
+        "required_resources": [],
+        "estimated_risk": "low",
+        "estimated_egress": "none",
+        "status": "planned"
+      },
+      {
+        "node_id": "Ledger",
+        "node_type": "Deterministic",
+        "dependencies": [
+          "DecisionRecord"
+        ],
+        "required_resources": [],
+        "estimated_risk": "low",
+        "estimated_egress": "none",
+        "status": "planned"
+      },
+      {
+        "node_id": "Replay",
+        "node_type": "Deterministic",
+        "dependencies": [
+          "Ledger"
+        ],
+        "required_resources": [],
+        "estimated_risk": "low",
+        "estimated_egress": "none",
+        "status": "planned"
+      },
+      {
+        "node_id": "Explanation",
+        "node_type": "Answer",
+        "dependencies": [
+          "Replay"
+        ],
+        "required_resources": [],
+        "estimated_risk": "low",
+        "estimated_egress": "none",
+        "status": "planned"
+      }
+    ]
+  },
+  "graph_hash": "g_49324236",
+  "audit": {
+    "ok": true,
+    "checks": [
+      {
+        "name": "no_circular_dependencies",
+        "ok": true,
+        "detail": "pipeline DAG is acyclic"
+      },
+      {
+        "name": "no_kernel_bypass",
+        "ok": true,
+        "detail": "GEL precedes eligibility & execution; ledger precedes replay; explanation last"
+      },
+      {
+        "name": "no_duplicate_provenance_writer",
+        "ok": true,
+        "detail": "1 definition of appendRecord"
+      },
+      {
+        "name": "no_duplicate_policy_decider",
+        "ok": true,
+        "detail": "1 definition of GEL evaluate(plan,bundle)"
+      },
+      {
+        "name": "no_duplicate_replay_path",
+        "ok": true,
+        "detail": "1 definition of replay(evidence)"
+      },
+      {
+        "name": "no_duplicate_memory_permission",
+        "ok": true,
+        "detail": "1 definition of canRead"
+      },
+      {
+        "name": "no_duplicate_tool_permission",
+        "ok": true,
+        "detail": "1 definition of hasPermissions"
+      },
+      {
+        "name": "no_duplicate_grounding",
+        "ok": true,
+        "detail": "1 definition of tagAnswer"
+      }
+    ]
+  }
+}
