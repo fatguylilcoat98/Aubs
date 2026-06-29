@@ -113,6 +113,34 @@ app-declared brand personas). Switching persona changes voice instantly with **z
 retraining** — the architecture carries it. This is a product surface (and a monetizable one:
 persona packs, like the theme packs already in Settings).
 
+### 3.5 The Persona Activation Engine — anyone, anything
+The deepest statement of the thesis, applied to personality: **the model is the knowledge store;
+the architecture is the activation layer.** The LLM already *contains* who Donald Trump is — his
+cadence, vocabulary, rhythm. It contains the pirate, the 1950s radio host, the gentle grandmother,
+the sardonic professor. What it lacks is the *decision* to become one, the *structure* to hold it,
+and the *governance* to keep it honest. The runtime does not need to know how the subject talks —
+it knows how to **activate** any subject and keep the truth underneath from moving.
+
+So a persona request is not limited to a built-in library. ANY free-text request — a real person,
+a fictional character, a role, or a pure tone — is parsed deterministically into a structured
+**activation** (`parseActivation` → `{ subject, mode }`) the runtime owns, then compiled
+(`compilePersona`) into an instruction that *leans on the model's knowledge of the subject*:
+- **impression** (a named figure, e.g. "Donald Trump") and **character** (a role, e.g. "a grizzled
+  pirate captain") → *"perform the voice and manner of X; draw on what you know about how X speaks
+  — cadence, vocabulary, signature phrasing, rhetorical habits, energy — and commit to it fully."*
+- **register** (a pure tone/trait, e.g. "very sarcastic", "warm and brief") → *"adopt this style
+  and tone; let it shape word choice, rhythm, and energy."*
+
+**Honesty is carried by construction, two ways.** (1) Embodiment instructions for a subject always
+include the explicit clause: *"This is a performance of STYLE, not a change of identity: you remain
+<name>. If asked who you really are, answer honestly — never claim to literally be <subject> or a
+human."* (2) More fundamentally, identity *questions* never reach the persona at all — the
+governed-fact layer (§2–§4) intercepts "who are you / what are you / who made you" *before* the
+model (model 0×) and answers from runtime-owned truth. So you get the subject's **voice** on
+open-ended talk and AUBS's **facts** on identity questions. **Style and truth compose; neither can
+overwrite the other.** Swap the model and the activation still works — only the rendered voice
+changes, because the activation lives in the runtime.
+
 ### 3.4 Why this is the right place for it
 Persona-in-the-model = inconsistent, unprovable, leaks into reasoning, dies on a model swap.
 Persona-in-the-runtime = consistent, inspectable, swappable, model-agnostic, and **governed**

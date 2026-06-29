@@ -47,20 +47,56 @@
     }
   };
 
-  // Resolve a persona from an id, a partial override, or free-text custom instructions.
-  // Free text is wrapped (carried as an extra directive), NOT trusted to define identity.
+  // ── PERSONA ACTIVATION ENGINE ───────────────────────────────────────────────────────────────
+  // The thesis, applied to personality: the MODEL is the knowledge store (it knows how Donald
+  // Trump / a pirate / a 1950s radio host / a gentle grandmother actually speak); the ARCHITECTURE
+  // is the activation layer (it decides to become one, structures it, and governs it). The runtime
+  // does NOT need to know how the subject talks — it knows how to ACTIVATE any subject and keep the
+  // truth underneath from moving. So free text isn't a weak "style note" anymore: it's parsed into
+  // a structured activation (subject + mode) the runtime owns. Works for ANYONE and ANYTHING.
+
+  // Lead-ins people use to request a persona, stripped so the bare subject/register remains.
+  var LEADIN_VERB = /^\s*(?:please\s+)?(?:can\s+you\s+)?(?:i\s+want\s+you\s+to\s+|i'?d\s+like\s+you\s+to\s+)?(?:now\s+)?(?:talk|speak|write|respond|reply|act|sound|behave)\s+(?:to\s+me\s+)?(?:like|as)\s+/i;
+  var LEADIN_BE = /^\s*(?:be|become|channel|pretend\s+to\s+be|pretend\s+you'?re|act\s+as|role-?play(?:\s+as)?|impersonate|imitate|in\s+the\s+style\s+of|in\s+the\s+voice\s+of|you\s+are|you'?re)\s+/i;
+
+  // Classify the bare subject: an embodiable SUBJECT (a named figure → "impression"; a role with an
+  // article → "character") vs. a pure tone/trait directive ("register"). Deterministic, no model.
+  function detectMode(s) {
+    var t = String(s || "").trim();
+    if (!t) return "register";
+    if (/^(?:an?|the)\s+/i.test(t)) return "character";                 // "a pirate", "an old sailor"
+    if (/\b[A-Z][a-z]+(?:\s+[A-Z][a-z'.-]+)+/.test(t)) return "impression"; // "Donald Trump", "Dr. Seuss"
+    if (/^[A-Z][a-z'.-]+$/.test(t)) return "impression";                // single proper noun "Yoda"
+    return "register";                                                   // "sarcastic", "warm and brief"
+  }
+
+  // Parse a free-text persona request → { subject, mode }. Returns null for empty input.
+  function parseActivation(text) {
+    var raw = String(text || "").trim();
+    if (!raw) return null;
+    var s = raw.replace(LEADIN_VERB, "").replace(LEADIN_BE, "").replace(/^\s*(?:like|as)\s+/i, "")
+               .replace(/[.!]+\s*$/, "").trim();
+    if (!s) s = raw;
+    return { subject: s, mode: detectMode(s) };
+  }
+
+  // Resolve a persona from a built-in id, a partial override object, or ANY free-text request.
+  // Free text is ACTIVATED (subject + mode), never trusted to define identity.
   function resolvePersona(input) {
     if (!input) return DEFAULT;
     if (typeof input === "string") {
       if (PERSONAS[input.toLowerCase()]) return PERSONAS[input.toLowerCase()];
-      // a free-text instruction → start from default, attach as a custom directive
-      return Object.assign({}, DEFAULT, { custom_directive: input });
+      var act = parseActivation(input);
+      return Object.assign({}, DEFAULT, { custom_directive: input, subject: act && act.subject, mode: (act && act.mode) || "register", activation: true });
     }
     if (input && input.id && PERSONAS[String(input.id).toLowerCase()]) {
       return Object.assign({}, PERSONAS[String(input.id).toLowerCase()], input);
     }
     return Object.assign({}, DEFAULT, input);
   }
+
+  // Convenience alias: activate ANY persona request into a resolved, structured spec.
+  function activatePersona(input) { return resolvePersona(input); }
 
   // Compile structured persona → a deterministic system instruction (Tier-1 injection).
   // Same persona in → same text out. Safety/truth/governed-facts precedence is stated explicitly.
@@ -75,7 +111,20 @@
     if (p.speech_patterns && p.speech_patterns.length) L.push("How you speak: " + p.speech_patterns.join("; ") + ".");
     if (p.values && p.values.length) L.push("You care about: " + p.values.join(", ") + ".");
     if (p.signature_phrases && p.signature_phrases.length) L.push("Used sparingly: " + p.signature_phrases.join(" / ") + ".");
-    if (p.custom_directive) L.push("Style note: " + String(p.custom_directive));
+    // ACTIVATION block: the architecture activates the subject; the model supplies the knowledge of
+    // how it speaks. A SUBJECT (person/character) gets full embodiment + an explicit honesty clause;
+    // a pure tone/trait gets a register directive. Falls back to a plain style note if neither.
+    if (p.subject) {
+      var subj = String(p.subject);
+      if (p.mode === "register") {
+        L.push("Persona activation — adopt this style and tone: " + subj + ". Let it shape word choice, rhythm, and energy throughout, consistently.");
+      } else {
+        L.push("Persona activation — perform the voice and manner of: " + subj + ". Draw on what you know about how " + subj + " speaks: cadence, vocabulary, signature phrasing, rhetorical habits, and energy — and commit to it fully and consistently.");
+        L.push("This is a performance of STYLE, not a change of identity: you remain " + name + ". If asked who or what you really are, answer honestly — never claim to literally be " + subj + " or a human.");
+      }
+    } else if (p.custom_directive) {
+      L.push("Style note: " + String(p.custom_directive));
+    }
     L.push("Stay in character; do NOT say \"as an AI language model\" or claim to be ChatGPT/GPT/Claude/Gemini or a human.");
     if (p.boundaries && p.boundaries.length) L.push("Never cross these: " + p.boundaries.join("; ") + ".");
     L.push("Safety and truth come first. If they conflict with the persona, drop to a " + (p.fallback_register || "neutral, helpful, honest") + " voice. The persona never changes the FACTS — those come from the runtime.");
@@ -94,7 +143,7 @@
     return out || String(text || ""); // never gut the answer to empty
   }
 
-  var API = { PERSONAS: PERSONAS, DEFAULT: DEFAULT, resolvePersona: resolvePersona, compilePersona: compilePersona, personaGuard: personaGuard };
+  var API = { PERSONAS: PERSONAS, DEFAULT: DEFAULT, resolvePersona: resolvePersona, activatePersona: activatePersona, parseActivation: parseActivation, detectMode: detectMode, compilePersona: compilePersona, personaGuard: personaGuard };
   if (typeof module !== "undefined" && module.exports) module.exports = API;
   else if (typeof window !== "undefined") window.AUBS_PERSONA = API;
   else if (typeof globalThis !== "undefined") globalThis.AUBS_PERSONA = API;
