@@ -106,33 +106,46 @@
     step("GEL", state.governance.decision);
     if (state.governance.decision !== "allow") return finishBlocked("GEL", "policy_" + state.governance.decision, false);
 
-    // 4b) Article 12 v2 (Slice 0) — deterministic identity route, model called 0×.
-    // When FLAG_IDENTITY_V2 is on and the app has DECLARED an identity, an identity query is
-    // answered from the INJECTED app identity inside an Execution Contract. The provider/model
-    // is NEVER reached, so the model can never originate (or confabulate) the system identity —
-    // the "Advanced User" failure class is removed by construction, not patched.
-    if (identityV2 && appIdentity && SPINE && SPINE.identityQueryV2(request.user_text || "", appIdentity.assistant_name)) {
+    // 4b) Unified Identity Governance — deterministic identity routes, model called 0×.
+    // ONE resolved identity object (assistant name by precedence app>user>default · AUBS runtime ·
+    // canonical acronym) drives all five governed answers (who are you · your name · introduce ·
+    // what does AUBS stand for · what's my name). The provider/model is NEVER reached for these, so
+    // it can never originate or confabulate identity. Gated by FLAG_IDENTITY_V2 (OFF → not built).
+    var resolvedIdentity = (identityV2 && SPINE && SPINE.resolveRuntimeIdentity)
+      ? SPINE.resolveRuntimeIdentity(options.identityConfig || { assistantName: options.userPersonaName || null, userName: options.userName || null }, appIdentity)
+      : null;
+    state.resolvedIdentity = resolvedIdentity;
+    var idRoute = resolvedIdentity ? SPINE.identityRoute(request.user_text || "", resolvedIdentity) : { handled: false };
+    if (idRoute.handled) {
+      var RI = resolvedIdentity;
       var idContract = CAC.builders.buildExecutionContract({
         intent_id: state.intent.intent_id, user_intent: request.user_text || "",
-        app_identity: appIdentity, allowed_provider: null,
+        app_identity: { assistant_name: RI.assistantDisplayName, persona_ref: RI.personaRef || "aubs-default", app_id: RI.appId || "aubs" },
+        allowed_provider: null,
         verdict: { decision: state.governance.decision, winning_rule: state.governance.winning_rule, policy_bundle_hash: state.governance.policy_bundle_hash },
         output_constraints: { must_not_claim_identity: true },
         safety_classification: "normal", egress_boundary: "none",
         replay_metadata: { policy_version: state.governance.policy_bundle_hash }
       });
       state.execution_contract = idContract;
-      var idAnswer = SPINE.answerIdentity(appIdentity, options.userPersonaName || null);
+      var idAnswer = idRoute.answer;
+      var idSource = idRoute.kind === "user_name" ? "user_profile" : (idRoute.kind === "acronym" ? "product_fact" : RI.assistantNameSource);
+      var idWhy = idRoute.kind === "user_name"
+        ? (RI.userName ? "Answered from your saved name. Model was not called." : "Your name isn't saved yet — answered without the model.")
+        : (idRoute.kind === "acronym" ? "AUBS acronym answered from the product fact. Model was not called."
+                                      : "Identity answered from declared truth (source: " + RI.assistantNameSource + "). Model was not called.");
       state.output_text = idAnswer; state.grounding = { tag: "general", grounding_strength: null };
-      state.status = "ok"; step("Identity", "app_declared:" + appIdentity.assistant_name);
+      state.status = "ok"; step("Identity", idRoute.kind + ":" + RI.assistantDisplayName + " (" + idSource + ")");
       await writeRecord({
         input: request.user_text || "", output: idAnswer, execution_type: "identity",
-        model_id: "none", provider: "app_declared", memory_refs: [], policy_version: state.governance.policy_bundle_hash,
+        model_id: "none", provider: "identity", memory_refs: [], policy_version: state.governance.policy_bundle_hash,
         explanation: {
           decision: state.governance.decision, winning_rule: state.governance.winning_rule, status: "ok", kind: "executed",
-          left_device: false, identity_source: "app_declared", model_called: false,
-          app_id: appIdentity.app_id, assistant_name: appIdentity.assistant_name,
-          execution_contract_id: idContract.contract_id, grounding_tag: "general", grounding_strength: null,
-          planner_graph_hash: state.graph_hash
+          left_device: false, identity_source: idSource, identity_kind: idRoute.kind,
+          assistant_name: RI.assistantDisplayName, assistant_name_source: RI.assistantNameSource,
+          app_id: RI.appId || "aubs", product_name: RI.productName,
+          execution_contract_id: idContract.contract_id, model_called: false,
+          grounding_tag: "general", grounding_strength: null, planner_graph_hash: state.graph_hash
         }
       });
       step("DecisionRecord", state.record ? state.record.id : "(no store)");
@@ -141,8 +154,8 @@
         state.evidence = REPLAY.captureDecision({ intent: state.intent, plan: state.plan, governance: state.governance, record: state.record, result: { provider_id: null, output_text: idAnswer } }, { policyBundle: bundle, registry: options.providerRegistry });
         step("Replay", "evidence captured");
       }
-      state.identity = { source: "app_declared", assistant_name: appIdentity.assistant_name, app_id: appIdentity.app_id, model_called: false };
-      state.explanation = "Identity answered from app declaration. Model was not called.";
+      state.identity = { source: idSource, kind: idRoute.kind, assistant_name: RI.assistantDisplayName, assistant_name_source: RI.assistantNameSource, app_id: RI.appId || "aubs", model_called: false };
+      state.explanation = idWhy;
       step("Explanation", state.explanation);
       return state;
     }

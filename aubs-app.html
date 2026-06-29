@@ -483,6 +483,19 @@ function appIdentity(){
     return (a && window.AUBS_CONSTITUTION_CHAT && window.AUBS_CONSTITUTION_CHAT.getAppIdentity) ? window.AUBS_CONSTITUTION_CHAT.getAppIdentity(a) : null;
   }catch(e){ return null; }
 }
+/* Unified Identity Governance — the app's single read of identity. identityConfig() gathers the
+   user's settings; resolvedIdentity() asks the ONE spine resolver (only when FLAG_IDENTITY_V2 is
+   on); displayAssistantName() is what the UI shows. Flag OFF → resolved is null and the header
+   falls back to S.aiName, exactly as today (byte-identical). */
+function identityConfig(){
+  return { assistantName:(S&&S.aiName)||"", userName:(S&&S.userName&&S.userName.trim())||"",
+           tone:(S&&S.tones&&S.tones.length)?S.tones.join(", "):"", instructions:(S&&S.instructions)||"" };
+}
+function resolvedIdentity(){
+  if(!(typeof SPINE!=="undefined" && SPINE && SPINE.FLAGS && SPINE.FLAGS.FLAG_IDENTITY_V2 && SPINE.resolveRuntimeIdentity)) return null;
+  try{ return SPINE.resolveRuntimeIdentity(identityConfig(), appIdentity()); }catch(e){ return null; }
+}
+function displayAssistantName(){ const r=resolvedIdentity(); return (r&&r.assistantDisplayName) ? r.assistantDisplayName : ((S&&S.aiName)||"AUBS"); }
 
 /* ── Milestone 0 — Ledger wiring (additive, behind FLAG_LEDGER) ──────────────────
    When ON, every provenance record is ALSO appended to a real append-only, hash-chained,
@@ -599,8 +612,12 @@ function buildSystemPrompt(mode){
   const persona=(S.aiName||"AUBS").trim();
   const hasPersona = persona && persona.toLowerCase()!=="aubs";
   const isIdentity = (mode==="identity");
+  // Unified Identity (flag ON): render the prompt from the ONE resolved object — the model is
+  // TOLD it is <assistantDisplayName>, that AUBS is the runtime, and the canonical AUBS meaning.
+  // Flag OFF → resolved is null → the original wording (byte-identical).
+  const _res = resolvedIdentity();
   let p = (typeof SPINE!=="undefined" && SPINE && SPINE.identityPreamble)
-    ? SPINE.identityPreamble(persona, { lean: !isIdentity })
+    ? SPINE.identityPreamble(persona, { lean: !isIdentity, resolved: _res || undefined })
     : (isIdentity
         ? `You are AUBS, a private on-device AI. Your name is AUBS and never changes — if asked your name or what you are, answer AUBS, never the user's name.${hasPersona?` You're styled as "${persona}" — a style only; you are still AUBS.`:""}`
         : `You are AUBS, a friendly private on-device AI. Be honest, help with what's asked, and refuse harmful requests kindly.${hasPersona?` Speak in a "${persona}" style.`:""}`);
@@ -666,8 +683,8 @@ window.savePersona=function(){
 };
 function refreshNames(){
   const tier=(document.getElementById('chatModel').textContent.includes('Smart'))?'Smart':'Fast';
-  document.getElementById('chatModel').textContent=S.aiName+' · '+tier;
-  document.getElementById('greetWho').textContent=S.aiName.toUpperCase();
+  document.getElementById('chatModel').textContent=displayAssistantName()+' · '+tier;
+  document.getElementById('greetWho').textContent=displayAssistantName().toUpperCase();
 }
 document.querySelectorAll('#themeRow .theme-opt').forEach(o=>o.addEventListener('click',()=>{
   S.theme=o.dataset.theme; applyAppearance(); persist();
@@ -864,7 +881,7 @@ window.startDownload=async function(tier){
   }
 };
 function setPct(p,text){ document.getElementById('barFill').style.width=p+"%"; document.getElementById('pctText').textContent=text||(p+"%"); }
-function enterChat(tier){ currentTier=tier; document.getElementById('chatModel').textContent=S.aiName+(tier==='fast'?' · Fast':' · Smart'); document.getElementById('greetWho').textContent=S.aiName.toUpperCase(); show('chat'); renderHistory(); setTimeout(()=>document.getElementById('box').focus(),300); }
+function enterChat(tier){ currentTier=tier; document.getElementById('chatModel').textContent=displayAssistantName()+(tier==='fast'?' · Fast':' · Smart'); document.getElementById('greetWho').textContent=displayAssistantName().toUpperCase(); show('chat'); renderHistory(); setTimeout(()=>document.getElementById('box').focus(),300); }
 function show(id){ document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active')); document.getElementById(id).classList.add('active'); }
 window.grow=(t)=>{ t.style.height='auto'; t.style.height=Math.min(t.scrollHeight,120)+'px'; };
 window.keys=(e)=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); window.send(); } };
@@ -917,7 +934,7 @@ window.send=async function(){
   const thread=document.getElementById('thread'); const sendBtn=document.getElementById('sendBtn');
   addMsg('user',text); history.push({role:"user",content:text}); box.value=''; window.grow(box);
   const aiWrap=document.createElement('div'); aiWrap.className='msg ai';
-  aiWrap.innerHTML='<div class="who">'+S.aiName.toUpperCase()+'</div><div class="bubble"><span class="dots"><i></i><i></i><i></i></span></div>';
+  aiWrap.innerHTML='<div class="who">'+displayAssistantName().toUpperCase()+'</div><div class="bubble"><span class="dots"><i></i><i></i><i></i></span></div>';
   thread.appendChild(aiWrap); const bubble=aiWrap.querySelector('.bubble'); thread.scrollTop=thread.scrollHeight; sendBtn.disabled=true;
   let full=""; let finish=""; let fatalErr=null;
   const t0=(window.performance&&performance.now)?performance.now():0;
@@ -1121,10 +1138,11 @@ async function runModelTurnThroughConstitution(text, sent, bubble, aiWrap, t0, r
     res=await window.AUBS_CONSTITUTION_CHAT.runConstitutionalChat({
       text, generate, model_id:(chosenModel||"local-model"),
       ledgerStore:c?c.store:null, signingKey:(c&&c.keys)?c.keys.privateKey:null,
-      // Slice 0 — Article 12 v2 (default OFF). identityV2 reads FLAG_IDENTITY_V2; appIdentity is
-      // the OS-declared app (none by default → AUBS fallback; ?app=splendor|lylo for testing).
-      // The user persona name is style only — never the answer to "who are you".
+      // Unified Identity (default OFF). identityV2 reads FLAG_IDENTITY_V2; appIdentity is the
+      // OS-declared app (none by default → AUBS fallback; ?app=splendor|lylo for testing). The
+      // resolver reads identityConfig (assistant name / user name / style) — one source of truth.
       appIdentity:appIdentity(), identityV2:!!(SPINE&&SPINE.FLAGS&&SPINE.FLAGS.FLAG_IDENTITY_V2),
+      identityConfig:identityConfig(), userName:(S&&S.userName&&S.userName.trim())||null,
       userPersonaName:(S&&S.aiName)||null
       // bundle omitted → pipeline uses the default-allow-local bundle (local chat is allowed)
     });
@@ -1138,6 +1156,10 @@ async function runModelTurnThroughConstitution(text, sent, bubble, aiWrap, t0, r
   if(ui.ok){
     let outText=ui.text;
     if(routerOn && SPINE && SPINE.cleanModelOutput){ try{ const cc=SPINE.cleanModelOutput(outText); if(cc&&cc.text) outText=cc.text; }catch(_){} }
+    // Unified Identity GUARD (flag ON, model turns only): neutralize a wrong assistant-name claim,
+    // a false AUBS expansion, or an invented user name. Skipped on deterministic identity turns
+    // (res.identity set) and when the flag is off. Deterministic, no model in the loop.
+    if(!res.identity && SPINE && SPINE.identityGuard){ const _r=resolvedIdentity(); if(_r){ try{ outText=SPINE.identityGuard(outText, _r); }catch(_){} } }
     bubble.textContent=outText;
     history.push({role:"assistant",content:outText}); saveHistory(history.slice(1));
     captureMemories(text);
@@ -1169,7 +1191,7 @@ function attachKernelWhy(aiWrap, res){
 }
 function addMsg(role,text){
   const thread=document.getElementById('thread'); const el=document.createElement('div'); el.className='msg '+role;
-  el.innerHTML='<div class="who">'+(role==='user'?(S.userName?S.userName.toUpperCase():'YOU'):S.aiName.toUpperCase())+'</div><div class="bubble"></div>';
+  el.innerHTML='<div class="who">'+(role==='user'?(S.userName?S.userName.toUpperCase():'YOU'):displayAssistantName().toUpperCase())+'</div><div class="bubble"></div>';
   el.querySelector('.bubble').textContent=text; thread.appendChild(el); thread.scrollTop=thread.scrollHeight;
 }
 
