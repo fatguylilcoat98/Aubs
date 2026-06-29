@@ -410,6 +410,26 @@ body{background:var(--bgbase);color:var(--ink);font-family:var(--font-body);
 <script src="core/facts/gate.js"></script>
 <script src="core/facts/provenance.js"></script>
 <script src="core/facts/bundle.js"></script>
+<!-- Trust OS (Layers 1–9). Classic scripts: define window.AUBS_* globals only; inert unless
+     FLAG_TRUST_OS (?trust=1). Load after spine/ledger + facts, before pipeline.js (reads AUBS_TRUST). -->
+<script src="core/trust/strengths.js"></script>
+<script src="core/trust/hash.js"></script>
+<script src="core/trust/trust-record.js"></script>
+<script src="core/trust/memory-types.js"></script>
+<script src="core/trust/reasoning-permission.js"></script>
+<script src="core/trust/egress.js"></script>
+<script src="core/trust/egress-ledger.js"></script>
+<script src="core/trust/decision-trace.js"></script>
+<script src="core/trust/check-order.js"></script>
+<script src="core/trust/proofs/integrity.js"></script>
+<script src="core/trust/proofs/provenance.js"></script>
+<script src="core/trust/proofs/grounding.js"></script>
+<script src="core/trust/proofs/decision.js"></script>
+<script src="core/trust/proofs/privacy.js"></script>
+<script src="core/trust/proofs/memory.js"></script>
+<script src="core/trust/verifier.js"></script>
+<script src="core/trust/glass-box.js"></script>
+<script src="core/trust/index.js"></script>
 <script src="core/constitution/pipeline.js"></script>
 <script src="core/constitution/audit.js"></script>
 <script src="core/constitution/index.js"></script>
@@ -525,6 +545,22 @@ function aubsRuntimeMeta(){ return { version:(typeof SPINE!=="undefined"&&SPINE)
 function governedFactResolved(){
   try{ return (typeof SPINE!=="undefined"&&SPINE&&SPINE.resolveRuntimeIdentity)?SPINE.resolveRuntimeIdentity(identityConfig(), appIdentity()):null; }catch(e){ return null; }
 }
+
+/* ── Trust OS — FLAG_TRUST_OS (default OFF) ─────────────────────────────────────────
+   When ON (and on the constitutional path), every model turn emits a validated Trust Record
+   (six proofs) and a Glass Box line under the answer. OFF → no record, byte-identical.
+   Enable per-session: ?trust=1 (best with ?spine=1, the constitutional path). */
+let FLAG_TRUST_OS=false;
+try{
+  const qp=new URLSearchParams(location.search);
+  if(qp.get('trust')==='1'||localStorage.getItem('aubs_trust')==='1') FLAG_TRUST_OS=true;
+  if(qp.get('trust')==='0'){ FLAG_TRUST_OS=false; try{ localStorage.removeItem('aubs_trust'); }catch(_){} }
+  if(qp.get('trust')==='1'){ try{ localStorage.setItem('aubs_trust','1'); }catch(_){} }
+  if(typeof SPINE!=="undefined"&&SPINE&&SPINE.FLAGS) SPINE.FLAGS.FLAG_TRUST_OS=FLAG_TRUST_OS;
+}catch(e){}
+function trustOsOn(){ return !!(FLAG_TRUST_OS && typeof window!=="undefined" && window.AUBS_TRUST); }
+// Governed-fact runtime metadata surfaced in Trust-OS turns (creator decided; version from build).
+function aubsRuntimeMetaFull(){ return { version:(typeof SPINE!=="undefined"&&SPINE)?SPINE.SPINE_VERSION:null, creator:"Christopher Hughes" }; }
 
 /* ── Milestone 0 — Ledger wiring (additive, behind FLAG_LEDGER) ──────────────────
    When ON, every provenance record is ALSO appended to a real append-only, hash-chained,
@@ -1189,7 +1225,10 @@ async function runModelTurnThroughConstitution(text, sent, bubble, aiWrap, t0, r
       // resolver reads identityConfig (assistant name / user name / style) — one source of truth.
       appIdentity:appIdentity(), identityV2:!!(SPINE&&SPINE.FLAGS&&SPINE.FLAGS.FLAG_IDENTITY_V2),
       identityConfig:identityConfig(), userName:(S&&S.userName&&S.userName.trim())||null,
-      userPersonaName:(S&&S.aiName)||null
+      userPersonaName:(S&&S.aiName)||null,
+      // Trust OS (FLAG_TRUST_OS / ?trust=1): emit a validated Trust Record + Glass Box line.
+      // publicKey upgrades Integrity to a full offline chain re-verify; runtime carries creator/version.
+      trustOS:trustOsOn(), publicKey:(c&&c.keys)?c.keys.publicKey:null, runtime:aubsRuntimeMetaFull()
       // bundle omitted → pipeline uses the default-allow-local bundle (local chat is allowed)
     });
   }catch(e){
@@ -1207,6 +1246,8 @@ async function runModelTurnThroughConstitution(text, sent, bubble, aiWrap, t0, r
     // (res.identity set) and when the flag is off. Deterministic, no model in the loop.
     if(!res.identity && SPINE && SPINE.identityGuard){ const _r=resolvedIdentity(); if(_r){ try{ outText=SPINE.identityGuard(outText, _r); }catch(_){} } }
     bubble.textContent=outText;
+    // Trust OS Glass Box — one honest line under the answer, rendered from the Trust Record only.
+    if(ui.glass_box_easy && trustOsOn()){ try{ const gx=document.createElement('div'); gx.className='glass-box-easy'; gx.style.cssText='font-size:0.78em;opacity:0.7;margin-top:4px'; gx.textContent='🔎 '+ui.glass_box_easy+(ui.trust_valid?'':' (record unverified)'); aiWrap.appendChild(gx); }catch(_){} }
     history.push({role:"assistant",content:outText}); saveHistory(history.slice(1));
     captureMemories(text);
   }else{
