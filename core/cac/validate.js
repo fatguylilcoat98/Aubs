@@ -90,7 +90,8 @@
         plan:       require("./schemas/plan.schema.json"),
         governance: require("./schemas/governance-decision.schema.json"),
         result:     require("./schemas/result.schema.json"),
-        failure:    require("./schemas/failure.schema.json")
+        failure:    require("./schemas/failure.schema.json"),
+        execution_contract: require("./schemas/execution_contract.schema.json")
       };
     } else if (typeof window !== "undefined" && window.AUBS_CAC_SCHEMAS) {
       SCHEMAS = window.AUBS_CAC_SCHEMAS; // browser: schemas injected at build time
@@ -114,7 +115,8 @@
     validatePlan:       function (o) { return validate(byKind("plan"), o); },
     validateGovernance: function (o) { return validate(byKind("governance"), o); },
     validateResult:     function (o) { return validate(byKind("result"), o); },
-    validateFailure:    function (o) { return validate(byKind("failure"), o); }
+    validateFailure:    function (o) { return validate(byKind("failure"), o); },
+    validateExecutionContract: function (o) { return validate(byKind("execution_contract"), o); }
   };
 
   if (typeof module !== "undefined" && module.exports) module.exports = API;

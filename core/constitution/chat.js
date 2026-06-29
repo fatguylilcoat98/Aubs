@@ -88,6 +88,12 @@
       ctx: opts.ctx || {},
       ledgerStore: opts.ledgerStore || null,
       signingKey: opts.signingKey || null,
+      // Slice 0 — Article 12 v2: app-declared identity + the deterministic identity route.
+      // appIdentity is the application's declaration (Splendor/LYLO/…); when absent the kernel
+      // falls back to AUBS. identityV2 / FLAG_IDENTITY_V2 default OFF (byte-identical when off).
+      appIdentity: opts.appIdentity || null,
+      identityV2: opts.identityV2,
+      userPersonaName: opts.userPersonaName || null,
       intent_id: opts.intent_id, plan_id: opts.plan_id, created_at: opts.created_at, source: opts.source || "user"
     })).then(function (state) {
       state.ui = uiView(state);
@@ -117,13 +123,29 @@
       grounding: state.grounding ? state.grounding.tag : null,
       record_id: state.record ? state.record.id : null,
       record_seq: state.record ? state.record.seq : null,
-      execution_type: state.record ? state.record.execution_type : null
+      execution_type: state.record ? state.record.execution_type : null,
+      // Slice 0: when the answer came from the app-declared identity route, surface that the
+      // model was NOT called and who declared the identity (for an honest "Why?").
+      identity: state.identity || null
     };
+  }
+
+  // Slice 0 — sample APP IDENTITIES. AUBS is the OS; these are interchangeable applications
+  // that DECLARE their own identity. The live app declares NONE by default (fallback = AUBS);
+  // these prove the OS↔app layering and are selectable for founder/device testing only.
+  var APP_IDENTITIES = {
+    splendor: { app_id: "splendor", assistant_name: "Splendor", persona_ref: "splendor-soul-v1" },
+    lylo:     { app_id: "lylo",     assistant_name: "LYLO",     persona_ref: "lylo-persona-v1" }
+  };
+  function getAppIdentity(appId) {
+    if (!appId) return null;
+    return APP_IDENTITIES[String(appId).toLowerCase()] || null;
   }
 
   var API = {
     makeLocalChatSkill: makeLocalChatSkill, makeLocalProvider: makeLocalProvider,
-    buildChatEnv: buildChatEnv, runConstitutionalChat: runConstitutionalChat, uiView: uiView
+    buildChatEnv: buildChatEnv, runConstitutionalChat: runConstitutionalChat, uiView: uiView,
+    APP_IDENTITIES: APP_IDENTITIES, getAppIdentity: getAppIdentity
   };
   if (typeof module !== "undefined" && module.exports) module.exports = API;
   else if (typeof window !== "undefined") window.AUBS_CONSTITUTION_CHAT = API;

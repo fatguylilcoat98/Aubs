@@ -31,6 +31,14 @@
   function spineEntries(memories) {
     return (memories || []).map(function (m) { return { id: m.memory_id, content: m.content, user_verified: true, superseded_by: null }; });
   }
+  // Slice 0 invariant: a provider may ONLY be invoked inside a valid Execution Contract.
+  // No contract (or an invalid one) = no provider call → an explicit fail-closed failure. This
+  // is the structural enforcement that the model never runs ungoverned.
+  function callProviderInContract(registry, providerId, plan, contract, ctx) {
+    var ok = contract && CAC && CAC.validate && CAC.validate.validateExecutionContract(contract).valid === true;
+    if (!ok) return Promise.resolve({ ok: false, failure_type: "policy_denied", message: "no valid execution contract — provider call refused (fail closed)", recoverable: false, drift: false });
+    return registry.runGuarded(providerId, plan, Object.assign({}, ctx || {}, { execution_contract: contract }));
+  }
   // Restrict a provider registry to a skill's DECLARED allowed_providers, so provider
   // eligibility can never select a provider the skill did not request (the skill's
   // capability boundary is honoured end-to-end — no cross-subsystem leak).
@@ -49,6 +57,11 @@
   async function runConstitutionalRequest(request, options) {
     request = request || {}; options = options || {}; var O = options; var ctx = options.ctx || {};
     var bundle = options.bundle || (GEL ? GEL.defaultBundle : null);
+    // Slice 0 — Article 12 v2 + Execution Contract. identityV2 defaults to the spine flag
+    // (FLAG_IDENTITY_V2, default OFF) unless explicitly overridden; appIdentity is app-declared.
+    var appIdentity = options.appIdentity || null;
+    var identityV2 = (options.identityV2 !== undefined) ? !!options.identityV2
+                   : !!(SPINE && SPINE.FLAGS && SPINE.FLAGS.FLAG_IDENTITY_V2);
     var path = [], counters = { gel: 0, provider_eligibility: 0, provider_runs: 0, memory_reads: 0, tool_runs: 0, records: 0 };
     var state = { path: path, counters: counters };
 
@@ -93,6 +106,47 @@
     step("GEL", state.governance.decision);
     if (state.governance.decision !== "allow") return finishBlocked("GEL", "policy_" + state.governance.decision, false);
 
+    // 4b) Article 12 v2 (Slice 0) — deterministic identity route, model called 0×.
+    // When FLAG_IDENTITY_V2 is on and the app has DECLARED an identity, an identity query is
+    // answered from the INJECTED app identity inside an Execution Contract. The provider/model
+    // is NEVER reached, so the model can never originate (or confabulate) the system identity —
+    // the "Advanced User" failure class is removed by construction, not patched.
+    if (identityV2 && appIdentity && SPINE && SPINE.identityQueryV2(request.user_text || "", appIdentity.assistant_name)) {
+      var idContract = CAC.builders.buildExecutionContract({
+        intent_id: state.intent.intent_id, user_intent: request.user_text || "",
+        app_identity: appIdentity, allowed_provider: null,
+        verdict: { decision: state.governance.decision, winning_rule: state.governance.winning_rule, policy_bundle_hash: state.governance.policy_bundle_hash },
+        output_constraints: { must_not_claim_identity: true },
+        safety_classification: "normal", egress_boundary: "none",
+        replay_metadata: { policy_version: state.governance.policy_bundle_hash }
+      });
+      state.execution_contract = idContract;
+      var idAnswer = SPINE.answerIdentity(appIdentity, options.userPersonaName || null);
+      state.output_text = idAnswer; state.grounding = { tag: "general", grounding_strength: null };
+      state.status = "ok"; step("Identity", "app_declared:" + appIdentity.assistant_name);
+      await writeRecord({
+        input: request.user_text || "", output: idAnswer, execution_type: "identity",
+        model_id: "none", provider: "app_declared", memory_refs: [], policy_version: state.governance.policy_bundle_hash,
+        explanation: {
+          decision: state.governance.decision, winning_rule: state.governance.winning_rule, status: "ok", kind: "executed",
+          left_device: false, identity_source: "app_declared", model_called: false,
+          app_id: appIdentity.app_id, assistant_name: appIdentity.assistant_name,
+          execution_contract_id: idContract.contract_id, grounding_tag: "general", grounding_strength: null,
+          planner_graph_hash: state.graph_hash
+        }
+      });
+      step("DecisionRecord", state.record ? state.record.id : "(no store)");
+      step("Ledger", state.record ? "appended seq " + state.record.seq : "n/a");
+      if (state.record) {
+        state.evidence = REPLAY.captureDecision({ intent: state.intent, plan: state.plan, governance: state.governance, record: state.record, result: { provider_id: null, output_text: idAnswer } }, { policyBundle: bundle, registry: options.providerRegistry });
+        step("Replay", "evidence captured");
+      }
+      state.identity = { source: "app_declared", assistant_name: appIdentity.assistant_name, app_id: appIdentity.app_id, model_called: false };
+      state.explanation = "Identity answered from app declaration. Model was not called.";
+      step("Explanation", state.explanation);
+      return state;
+    }
+
     // 5) Provider Eligibility (only when the plan calls a provider)
     var needProvider = (state.estimate.required_providers || []).length > 0;
     if (needProvider && options.providerRegistry) {
@@ -125,11 +179,27 @@
       toolOut = te; step("Tools", request.tool.tool_id + ":" + request.tool.operation + " → " + te.status);
     } else { step("Tools", "not required"); }
 
+    // 7b) Mint the per-turn Execution Contract the provider will run INSIDE (Slice 0). ONLY the
+    // kernel mints it; the provider receives it and decides none of it. The app identity (if any)
+    // is injected here so the provider runs with the declared identity it cannot originate.
+    state.execution_contract = CAC.builders.buildExecutionContract({
+      intent_id: state.intent.intent_id, user_intent: request.user_text || "",
+      app_identity: appIdentity || undefined, allowed_provider: state.selected_provider || null,
+      allowed_tools: request.tool && request.tool.tool_id ? [request.tool.tool_id] : [],
+      allowed_memory_scopes: request.memory && request.memory.scope ? [request.memory.scope] : [],
+      verdict: { decision: state.governance.decision, winning_rule: state.governance.winning_rule, policy_bundle_hash: state.governance.policy_bundle_hash },
+      output_constraints: { max_tokens: 256, must_not_claim_identity: identityV2 },
+      safety_classification: "normal",
+      egress_boundary: (state.estimate.max_egress && state.estimate.max_egress !== "none") ? state.estimate.max_egress : "none",
+      replay_metadata: { policy_version: state.governance.policy_bundle_hash }
+    });
+
     // 8) Execution — provider (M5 drift shield) or deterministic; tool output if a tool ran
     var outputText = "", modelId = "none", providerType = null;
     var terminalKind = "executed";
     if (state.selected_provider) {
-      var pout = await options.providerRegistry.runGuarded(state.selected_provider, state.plan, { intent: state.intent }); counters.provider_runs++;
+      // No contract = no provider call (fail closed). The kernel always reaches here with one.
+      var pout = await callProviderInContract(options.providerRegistry, state.selected_provider, state.plan, state.execution_contract, { intent: state.intent }); counters.provider_runs++;
       var pr = options.providerRegistry.get(state.selected_provider); providerType = pr ? pr.provider_type : null;
       if (!pout || !pout.ok) { state.failure_msg = (pout && pout.message) || "provider failed"; step("Execution", "provider failed", "error"); }
       else { outputText = pout.output_text || ""; modelId = pout.model_id || "local-model"; step("Execution", "provider " + state.selected_provider); }
@@ -177,7 +247,7 @@
     return state;
   }
 
-  var API = { runConstitutionalRequest: runConstitutionalRequest, spineEntries: spineEntries };
+  var API = { runConstitutionalRequest: runConstitutionalRequest, spineEntries: spineEntries, callProviderInContract: callProviderInContract };
   if (typeof module !== "undefined" && module.exports) module.exports = API;
   else if (typeof window !== "undefined") window.AUBS_CONSTITUTION_PIPELINE = API;
 })();

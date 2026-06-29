@@ -27,7 +27,8 @@ const schemas = {
   plan:       load("core/cac/schemas/plan.schema.json"),
   governance: load("core/cac/schemas/governance-decision.schema.json"),
   result:     load("core/cac/schemas/result.schema.json"),
-  failure:    load("core/cac/schemas/failure.schema.json")
+  failure:    load("core/cac/schemas/failure.schema.json"),
+  execution_contract: load("core/cac/schemas/execution_contract.schema.json")
 };
 const bundleSchema  = load("core/gel/policy-bundle.schema.json");
 const defaultBundle = load("core/gel/default-policy-bundle.json");
