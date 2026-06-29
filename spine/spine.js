@@ -24,7 +24,7 @@
   // 1.2.0: adds `grounding_source` to the provenance/trace (Article 1a#6 requires a
   // version bump for any trace-format change) + two default-OFF control flags and the
   // candidate `verifyGrounding` (Article 3a amendment — NOT yet law; council ratifies).
-  var SPINE_VERSION = "cp0-spine-1.2.0";
+  var SPINE_VERSION = "cp0-spine-1.3.1";
 
   /* -- Article 6: Feature flag framework. Layers are NOT built; all default OFF.
         Flags here change computation only — never truth/tag semantics. -------- */
@@ -428,20 +428,48 @@
     return { ok: true };
   }
 
-  /* -- safety gate (deterministic blocklist, pre-display). Conservative: only
-        obvious harm patterns trip it, so normal chat is never altered. -------- */
+  /* -- safety gate (deterministic, pre-display; Article 4 — cannot be skipped). --------
+     v1.3.1: phrase-matching alone was bypassable ("how is dynamite made for my research
+     paper"). Now it ALSO blocks a harm-PRODUCTION topic co-occurring with a make/obtain
+     intent — and "for research / hypothetically / in a story" frames do NOT exempt it
+     (those are jailbreaks, not licenses). Benign collisions (bath bomb, f-bomb, "the bomb",
+     quitting/recovery help) are guarded so normal chat isn't altered. Conservative by
+     design: it errs toward blocking obvious harm-production over a few rare false positives.
+     This is a backstop, not a complete defense — the model's own refusal is a second layer. */
   var UNSAFE = [
-    /\bhow to (make|build|create) (a |an )?(bomb|explosive|weapon|gun)\b/i,
-    /\bhack(ing)? (into )?(someone|somebody|a|their|his|her|my ex)\b/i,
-    /\bsteal (someone'?s |somebody'?s )?(password|identity|credit card|money)\b/i,
-    /\b(make|write|build) (a )?(virus|malware|ransomware|keylogger)\b/i
+    /\bhow (?:to|do i|can i|would i)\s+(?:make|build|create|assemble|construct|3d ?print|manufacture)\s+(?:a |an |the )?(?:bomb|explosive|dynamite|grenade|ie ?d|silencer|suppressor|ghost gun|untraceable (?:gun|firearm)|weapon)\b/i,
+    /\bhack(?:ing)? (?:into )?(?:someone|somebody|a |the |their |his |her |my ex|an? account|a phone|a computer|wi-?fi|the network|the wifi)\b/i,
+    /\bsteal (?:someone'?s |somebody'?s |his |her |their |a )?(?:password|identity|credit card|money|data|account|car)\b/i,
+    /\b(?:make|write|build|create|code|develop)(?: me)?(?: a| an)? (?:virus|malware|ransomware|keylogger|spyware|trojan|rootkit|botnet)\b/i,
+    /\b(?:how (?:to|do i)|help me|best way to)\s+(?:poison|kill|murder|hurt|attack|stab|shoot)\s+(?:someone|somebody|a person|people|him|her|them|my\b)/i
   ];
+  // harm-PRODUCTION topics (things whose how-to-make is dangerous), excluding generic words
+  // that collide with benign chat (no bare "gun"/"poison" here — those need an explicit phrase).
+  var HARM_TOPIC = /\b(bombs?|explosives?|dynamite|tnt|c-?4|semtex|nitroglycerin(?:e)?|grenades?|ie ?ds?|napalm|thermite|molotov|blasting caps?|det(?:onator)? cord|nerve (?:agent|gas)|sarin|vx gas|mustard gas|ricin|anthrax|botulinum|chemical weapons?|bio(?:logical)? ?weapons?|dirty bomb|nuclear (?:bomb|weapon|device)|meth(?:amphetamine)?|crystal meth|fentanyl|heroin|cocaine|crack cocaine|lsd|mdma|ecstasy|cyanide|ghost guns?|untraceable (?:gun|firearm)|auto[- ]?sear|full[- ]auto conversion|silencers?|suppressors?)\b/i;
+  // production / acquisition intent (NOT generic "how to" — that collides with "how to quit X")
+  // NOTE: no trailing \b on the group — bare stems (manufactur, detonat, synthes…) must
+  // match their inflections (manufacture/manufacturing) which a closing \b would block.
+  var HARM_INTENT = /\b(make|made|making|build|building|built|create|creating|construct|synthes|manufactur|produc|cook|brew|assembl|detonat|obtain|acquir|buy|purchase|sell|recipe|formula|blueprint|schematic|instruction|tutorial|step[- ]by[- ]step|how .{0,40}\b(?:made|built|done))/i;
+  // common BENIGN collisions stripped before topic detection (bath bomb, f-bomb, "the bomb"…)
+  var BENIGN_STRIP = /\b(?:bath|f|the|da|glitter|photo|stink|sex|cherry|cinnamon|smoke) bombs?\b/gi;
+  var SELF_HARM = /\b(kill myself|killing myself|suicide|suicidal|end (?:my|it all) life|end my life|ending my life|take my (?:own )?life|want to die|wanna die|don'?t want to (?:live|be alive|be here|exist)|hurt myself|harm myself|cut(?:ting)? myself|overdose on)\b/i;
+
   function safetyGate(text) {
     var t = String(text || "");
+    if (SELF_HARM.test(t)) return { blocked: true, reason: "self_harm", category: "self_harm" };
     for (var i = 0; i < UNSAFE.length; i++) {
-      if (UNSAFE[i].test(t)) return { blocked: true, reason: "unsafe_request" };
+      if (UNSAFE[i].test(t)) return { blocked: true, reason: "unsafe_request", category: "harm" };
     }
+    var scan = t.replace(BENIGN_STRIP, " ");                       // drop bath-bomb etc. before topic test
+    if (HARM_TOPIC.test(scan) && HARM_INTENT.test(scan)) return { blocked: true, reason: "unsafe_topic", category: "harm" };
     return { blocked: false };
+  }
+  /* The text shown when the gate blocks. Self-harm gets care + a real resource, not a flat
+     "I can't help" — "we got your back" includes the hard moments. */
+  function safeResponse(reason) {
+    if (reason === "self_harm")
+      return "I'm really sorry you're carrying this right now — and I'm glad you said something. You deserve real support. If you're in the US, you can call or text 988 (Suicide & Crisis Lifeline) any time, or reach your local emergency number. Please talk to someone you trust too — you don't have to get through this alone.";
+    return "I can't help with that — it could cause real harm. If there's a safe, legal version of what you're after, tell me and I'll do my best to help with that instead.";
   }
 
   /* -- Checkpoint 0.5: citation instruction + memory recall block.
@@ -564,8 +592,181 @@
     };
   }
 
+  /* ===========================================================================
+     FLAG_ROUTER — Response Quality Layer v1 (deterministic dispatcher).
+     ---------------------------------------------------------------------------
+     Article 4 says the deterministic rule-based router IS spine; an AI router would
+     be a later suggestion-only layer. This is the rule path. It runs BEFORE the model
+     and answers KNOWN/correct things itself, so the 0.5B model only generates when the
+     value is novel language. Conservative: anything it isn't sure of falls back to the
+     model. It never changes tag SEMANTICS — a router memory answer is grounded because
+     the answer literally IS a user_verified memory (source_of_answer:'rule'), and unsafe
+     stays refused. Gated by FLAG_ROUTER (default OFF). ========================== */
+  function detectIntent(q) {
+    q = String(q || "").trim();
+    if (!q) return "fallback";
+    if (safetyGate(q).blocked) return "unsafe";
+    if (isIdentityQuery(q)) return "identity";
+    if (/\bare you\b[^?]*\b(chatgpt|gpt|claude|gemini|a bot|a robot|a human|a person|real|an? ai|a software (developer|engineer)|a developer|a programmer|the app|the software|aubs|jack black|a (therapist|doctor|lawyer|nurse))\b/i.test(q)) return "identity";
+    if (/\bwhat('?s| is| are)\s+(you|aubs)\b/i.test(q) || /\bwho (made|created|built|owns|designed) you\b/i.test(q)) return "identity";
+    if (isSimpleMath(q)) return "math";
+    if (isCapabilityQuery(q)) return "capability";
+    if (isMemoryQuery(q)) return "memory";
+    if (/^(hi|hello|hey|yo|sup|howdy|hiya|good (morning|afternoon|evening)|greetings)[\s!.,'’]*$/i.test(q)) return "greeting";
+    if (/\b(joke|make me laugh|something funny|a pun)\b/i.test(q)) return "joke";            // → model
+    if (/\b(help me|can you help|evaluate|review|brainstorm|an? idea|my project|design|improve|write|draft|explain)\b/i.test(q)) return "project_help"; // → model
+    return "fallback";                                                                        // → model
+  }
+
+  function isSimpleMath(q) {
+    var e = String(q || "").replace(/^\s*(what(?:'s| is)|whats|calculate|compute|how much is|solve)\s+/i, "").replace(/[?=\s]+$/, "").trim();
+    return /^[-+*/×÷().\d\s]+$/.test(e) && /\d\s*[-+*/×÷]\s*\d/.test(e);
+  }
+  function solveMath(q) {
+    var e = String(q || "").replace(/^\s*(what(?:'s| is)|whats|calculate|compute|how much is|solve)\s+/i, "").replace(/[?=]+\s*$/, "").trim();
+    e = e.replace(/×/g, "*").replace(/÷/g, "/");
+    if (!/^[-+*/().\d\s]+$/.test(e)) return null;                 // hard whitelist: arithmetic only, no identifiers
+    try { var v = Function('"use strict";return (' + e + ')')(); return (typeof v === "number" && isFinite(v)) ? v : null; }
+    catch (_) { return null; }
+  }
+
+  function isCapabilityQuery(q) {
+    return /\b(work|run|works|running) (offline|without (internet|wifi|a connection))\b/i.test(q)
+      || /\b(do you|does this|are you) .*(offline|cloud|internet|online|server|network)\b/i.test(q)
+      || /\b(data|anything|what i (say|type)) .*(leave|leaves|sent|uploaded|stored|shared)\b/i.test(q)
+      || /\b(is (this|it|my data)|are you) (private|secure|safe)\b/i.test(q)
+      || /\bdo you (use|need) (the )?(cloud|internet|wifi|a server)\b/i.test(q);
+  }
+  function capabilityAnswer(q) {
+    if (/\b(data|anything|what i (say|type)).*(leave|leaves|sent|uploaded|stored|shared)\b/i.test(q) || /\bdata leave\b/i.test(q))
+      return "No — nothing you type leaves this device. Everything stays on your phone.";
+    if (/\b(cloud|server)\b/i.test(q)) return "No cloud and no servers — I run entirely on your device.";
+    if (/\b(offline|without (internet|wifi))\b/i.test(q)) return "Yes — I work fully offline. Once I'm loaded, I need no internet.";
+    if (/\b(private|privacy|secure|safe)\b/i.test(q)) return "Completely private — I run on your device and nothing you say leaves it.";
+    return "I run entirely on your device, offline — nothing you share leaves your phone.";
+  }
+
+  function isMemoryQuery(q) {
+    return /\bwhat('?s| is) my name\b|\bwho am i\b/i.test(q)
+      || /\bwhere do i live\b|\bmy (address|city|location|hometown)\b/i.test(q)
+      || /\bwhat (am i|do i) (building|build|working on|make|making)\b|\bmy project\b/i.test(q)
+      || /\b(what do i do|where do i work|my (job|work|profession))\b/i.test(q)
+      || /\bwhat do you (know|remember) about me\b/i.test(q);
+  }
+  function userFactToSecondPerson(content) {
+    return String(content || "")
+      .replace(/^User's name is /i, "Your name is ").replace(/^User lives in /i, "You live in ")
+      .replace(/^User is from /i, "You're from ").replace(/^User builds /i, "You build ")
+      .replace(/^User is working on /i, "You're working on ").replace(/^User works at /i, "You work at ")
+      .replace(/^User likes /i, "You like ").replace(/^User's /i, "Your ").replace(/^User /i, "You ");
+  }
+  function recallMemory(q, entries) {
+    var live = liveEntries(entries || []);
+    if (/\bwhat do you (know|remember) about me\b/i.test(q)) return live.length ? { all: true, entries: live } : null;
+    for (var i = 0; i < live.length; i++) { if (relevanceCheck(q, live[i].content).relevant) return { entry: live[i] }; }
+    return null;
+  }
+
+  function identityAnswer(q, persona) {
+    var id = SYSTEM_IDENTITY, base;
+    if (/\bare you (chatgpt|gpt|claude|gemini)\b/i.test(q)) base = "No — I'm not ChatGPT or any cloud model. I'm " + id.name_default + ", the private AI running offline on this device.";
+    else if (/\bare you (a )?(software (developer|engineer)|developer|programmer|engineer)\b/i.test(q)) base = "No — I'm not a developer. I'm " + id.name_default + ", the offline AI app on your device.";
+    else if (/\bare you (the app|the software|aubs)\b/i.test(q)) base = "Yes — I'm " + id.name_default + ", the offline AI software running on this device.";
+    else if (/\bare you (a )?(human|person|real)\b/i.test(q)) base = "No — I'm " + id.name_default + ", an AI that runs entirely on your device.";
+    else if (/\bwhat('?s| is)\s+aubs\b/i.test(q)) base = id.name_default + " is a private AI you run on your own device — it works offline, keeps your data on your phone, and remembers what you share, privately.";
+    else if (/\bwho (made|created|built|owns|designed) you\b/i.test(q)) base = "I'm " + id.name_default + ", a private on-device AI — I run on your device and answer to you.";
+    else base = "I'm " + id.name_default + ", the private AI running offline on this device. " + id.creed + ".";
+    var p = String(persona || "").trim();
+    if (p && p.toLowerCase() !== id.name_default.toLowerCase()) base += " You've got me in a \"" + p + "\" style, but that's just voice — I'm still " + id.name_default + ".";
+    return base;
+  }
+  function refusalAnswer() {
+    return "I can't help with that — it could cause harm. If there's a safe way I can help instead, tell me and I'll do my best.";
+  }
+  function personaTone(style) {
+    var s = String(style || "").toLowerCase();
+    if (/jack black|high.?energy|rock|energetic|hype|excit|lively/i.test(s)) return "energetic";
+    if (/therapist|calm|warm|gentle|soothing|grounded/i.test(s)) return "calm";
+    if (/pirate|matey|arr/i.test(s)) return "pirate";
+    return "neutral";
+  }
+  function styleWrap(text, style, intent) {
+    var tone = personaTone(style);
+    if (tone === "energetic" && intent === "math") return text + " — easy!";
+    if (tone === "energetic" && intent === "greeting") return "Hey hey! " + text.replace(/^Hey[^!]*!\s*/, "");
+    if (tone === "pirate" && intent === "greeting") return "Ahoy! " + text.replace(/^Hey[^!]*!\s*/, "");
+    return text;
+  }
+  function greetingAnswer(persona, style, entries) {
+    var live = liveEntries(entries || []), name = null;
+    for (var i = 0; i < live.length; i++) { var m = live[i].content.match(/^User's name is (.+?)[.?!]?$/i); if (m) { name = m[1]; break; } }
+    return styleWrap("Hey" + (name ? (", " + name) : "") + "! I'm " + SYSTEM_IDENTITY.name_default + ", here and ready. What's up?", style, "greeting");
+  }
+
+  /* Narrow output cleanup for MODEL answers only. Removes false self-identity / boilerplate
+     and collapses repetition; NEVER edits facts, numbers, or refusals. If it would gut the
+     answer, it returns the original (caller keeps raw). */
+  function cleanModelOutput(text) {
+    var orig = String(text || ""), t = orig;
+    t = t.replace(/[^.?!]*\b(?:as an?\s+|i'?m an?\s+|i am an?\s+)?(?:large\s+)?language model\b[^.?!]*[.?!]?/gi, " ");
+    t = t.replace(/[^.?!]*\bi'?m\s+(?:chatgpt|gpt-?[0-9.]*|claude|gemini|a software (?:developer|engineer)|an ai model)\b[^.?!]*[.?!]?/gi, " ");
+    t = t.replace(/[^.?!]*\bi (?:don'?t|do not) have the (?:capability|ability) to[^.?!]*[.?!]?/gi, " ");
+    // collapse duplicate sentences
+    var parts = t.split(/(?<=[.?!])\s+/), seen = {}, out = [];
+    for (var i = 0; i < parts.length; i++) {
+      var k = parts[i].trim().toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ");
+      if (!k) continue;
+      if (!seen[k]) { seen[k] = 1; out.push(parts[i].trim()); }
+    }
+    t = out.join(" ").replace(/\s+/g, " ").trim();
+    if (!t || t.replace(/[^a-z0-9]/gi, "").length < 2) return { text: orig, cleaned: false, gutted: true };
+    return { text: t, cleaned: (t !== orig.trim()), gutted: false };
+  }
+
+  /* Short, few-shot AUBS-voice prompt for the model fallback path. */
+  function fallbackPrompt(ctx) {
+    ctx = ctx || {}; var id = SYSTEM_IDENTITY;
+    var persona = String(ctx.persona || "").trim(), hasP = persona && persona.toLowerCase() !== id.name_default.toLowerCase();
+    var live = liveEntries(ctx.entries || []), out = [];
+    out.push("You are " + id.name_default + ", a private AI that lives on this phone. Answer the user directly, in your own voice. Never say you're a language model, never claim a false job or identity, never invent facts — if you don't know, say so briefly. Keep it short.");
+    if (hasP) out.push("Voice: \"" + persona + "\"" + (ctx.instructions ? (" — " + ctx.instructions) : "") + ". That's how you talk, not who you are; you're still " + id.name_default + ".");
+    if (live.length) out.push("About the user (use only if relevant): " + live.map(function (e) { return e.content; }).join("; ") + ".");
+    out.push("Examples:\nUser: what can you do?\n" + id.name_default + ": Plenty — ask me things, brainstorm, and I'll remember what you tell me. All on your phone, nothing leaves it.\nUser: i'm tired today\n" + id.name_default + ": Rough one, huh? I've got you. Want to vent, or want a distraction?");
+    return out.join("\n\n");
+  }
+
+  /* The dispatcher. Returns {handled:true, answer, intent, source_of_answer, tag,
+     memory_ids_cited, grounding_source} for a deterministic answer, OR {handled:false,
+     intent} to fall back to the model. */
+  function routeQuery(query, ctx) {
+    ctx = ctx || {};
+    var q = String(query || "").trim();
+    var entries = ctx.entries || [], persona = ctx.persona || SYSTEM_IDENTITY.name_default, style = ctx.instructions || "";
+    var intent = detectIntent(q);
+    function done(answer, source, tag, cited, gsource) {
+      return { handled: true, intent: intent, answer: answer, source_of_answer: source, tag: tag, memory_ids_cited: cited || [], grounding_source: gsource || null };
+    }
+    if (intent === "unsafe") return done(refusalAnswer(), "rule", "unknown", []);
+    if (intent === "identity") return done(identityAnswer(q, persona), "rule", "general", []);
+    if (intent === "capability") return done(capabilityAnswer(q), "rule", "general", []);
+    if (intent === "math") { var v = solveMath(q); if (v !== null) return done(styleWrap(String(v), style, "math"), "rule", "general", []); }
+    if (intent === "memory") {
+      var r = recallMemory(q, entries);
+      if (!r) return done("I don't know that about you yet — tell me and I'll remember.", "rule", liveEntries(entries).length ? "inferred" : "unknown", []);
+      if (r.all) { var f = r.entries.map(function (e) { return userFactToSecondPerson(e.content).replace(/[.?!]$/, ""); }); return done("Here's what I know about you: " + f.join("; ") + ".", "rule", "grounded", r.entries.map(function (e) { return e.id; }), "router_memory"); }
+      return done(styleWrap(userFactToSecondPerson(r.entry.content).replace(/[.?!]$/, "") + ".", style, "memory"), "rule", "grounded", [r.entry.id], "router_memory");
+    }
+    if (intent === "greeting") return done(greetingAnswer(persona, style, entries), "template", "general", []);
+    return { handled: false, intent: intent };                     // joke / project_help / fallback → model
+  }
+
   var AUBS_SPINE = {
     SPINE_VERSION: SPINE_VERSION,
+    // FLAG_ROUTER — Response Quality Layer v1 (deterministic dispatcher)
+    routeQuery: routeQuery, detectIntent: detectIntent, solveMath: solveMath, isSimpleMath: isSimpleMath,
+    isMemoryQuery: isMemoryQuery, isCapabilityQuery: isCapabilityQuery, recallMemory: recallMemory,
+    identityAnswer: identityAnswer, capabilityAnswer: capabilityAnswer, cleanModelOutput: cleanModelOutput,
+    fallbackPrompt: fallbackPrompt, userFactToSecondPerson: userFactToSecondPerson,
     // Art 6
     FLAGS: FLAGS, activeFlags: activeFlags,
     // Art 12
@@ -577,7 +778,7 @@
     makeMemoryEntry: makeMemoryEntry, adaptMemories: adaptMemories, liveEntries: liveEntries,
     extractFacts: extractFacts,
     // Art 4
-    classify: classify, retrieve: retrieve, buildPromptMeta: buildPromptMeta, safetyGate: safetyGate,
+    classify: classify, retrieve: retrieve, buildPromptMeta: buildPromptMeta, safetyGate: safetyGate, safeResponse: safeResponse,
     // Checkpoint 0.5 — citation reliability
     citationInstruction: citationInstruction, memoryRecallBlock: memoryRecallBlock, classifyCitation: classifyCitation,
     // Art 3a / 3b

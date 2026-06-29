@@ -344,6 +344,10 @@ if(SPINE && SPINE.FLAGS){
     const qp=new URLSearchParams(location.search);
     if(qp.get('trace')==='1'||localStorage.getItem('aubs_trace')==='1') SPINE.FLAGS.FLAG_TRACE_VERBOSE=true;
     if(qp.get('svg')==='1'||localStorage.getItem('aubs_svg')==='1') SPINE.FLAGS.FLAG_SPINE_VERIFIED_GROUNDING=true;
+    // FLAG_ROUTER (Response Quality Layer v1): deterministic dispatcher before the model.
+    // Default OFF; enable per-session with ?router=1 (or aubs_router=1) while validating.
+    if(qp.get('router')==='1'||localStorage.getItem('aubs_router')==='1') SPINE.FLAGS.FLAG_ROUTER=true;
+    if(qp.get('router')==='0') SPINE.FLAGS.FLAG_ROUTER=false;
   }catch(e){}
 }
 
@@ -586,7 +590,7 @@ applyAppearance();
 
 // Build marker — lets us confirm on-device exactly which code is live (the service
 // worker can otherwise serve a stale spine.js / HTML). Bump this with each shipped change.
-const BUILD="cp0-devaudit-13 · no-id-echo";
+const BUILD="cp0-router-2 · safety-gate-hardened";
 console.log("[AUBS] build:", BUILD, "· spine:", (typeof SPINE!=="undefined"&&SPINE)?SPINE.SPINE_VERSION:"NOT LOADED");
 (function(){ const el=document.getElementById('buildTag'); if(el) el.textContent=BUILD+(typeof SPINE!=="undefined"&&SPINE?(" · spine "+SPINE.SPINE_VERSION):" · spine MISSING"); })();
 
@@ -632,12 +636,20 @@ function gpuDiagStr(){
 // faulted the first inference on this Adreno GPU (KV-cache mismatch), while the
 // test harness — which passes NO chatOpts — produced text on the same device.
 // We let web-llm use the model's own compiled config.
+// Models PROVEN to fit the Adreno ~128MB binding cap on-device (0.5B-class). Bigger
+// models (1B/1.5B/1.7B) crashed with mapAsync on the S24, so on a tight-binding GPU we
+// never select them — even on Smart. Big models are desktop/high-memory only.
+const PHONE_SAFE=/Qwen2\.5-0\.5B-Instruct|Qwen2-0\.5B-Instruct|SmolLM2-360M-Instruct/i;
+const PHONE_SAFE_FALLBACK=["Qwen2.5-0.5B-Instruct-q4f16_1-MLC","SmolLM2-360M-Instruct-q4f16_1-MLC","Qwen2.5-0.5B-Instruct-q4f32_1-MLC"];
 function resolve(tier){
-  // Track A (lever 3): the lists are now ordered SMALL-FIRST (SmolLM2-360M leads Fast),
-  // so the smallest model whose vocab buffer fits under the 128MB binding cap is chosen.
-  // Earlier device runs that "disproved" small-vocab also carried a chatOpts override and
-  // streaming (both since removed), so this is a clean retest of the model-size lever.
   const order=hasF16?[...MODELS[tier].f16,...MODELS[tier].f32]:[...MODELS[tier].f32,...MODELS[tier].f16];
+  if(bindingTight()){
+    // Phone GPU: restrict to crash-safe models regardless of tier (Smart can't crash you).
+    const safe=order.filter(id=>PHONE_SAFE.test(id)).find(id=>AVAILABLE.includes(id));
+    if(safe) return safe;
+    const fb=PHONE_SAFE_FALLBACK.find(id=>AVAILABLE.includes(id));
+    if(fb) return fb;
+  }
   for(const id of order) if(AVAILABLE.includes(id)) return id;
   return AVAILABLE.find(id=>/q4f32/i.test(id)&&/instruct|chat/i.test(id))||AVAILABLE[0];
 }
@@ -704,66 +716,82 @@ window.send=async function(){
   thread.appendChild(aiWrap); const bubble=aiWrap.querySelector('.bubble'); thread.scrollTop=thread.scrollHeight; sendBtn.disabled=true;
   let full=""; let finish=""; let fatalErr=null;
   const t0=(window.performance&&performance.now)?performance.now():0;
-  // Build THIS turn's system prompt: "identity" (answer as AUBS, no user memory) for
-  // who-are-you questions, else "chat" (lean AUBS + plain memory facts, no [ID:]).
-  history[0]={ role:"system", content: buildSystemPrompt(promptMode(text)) };
-  const sent=contextMessages();                  // exact messages sent to the model (logged in provenance)
-  // Recoverable runtime faults: mobile WebGPU can lose/dispose the engine, after which
-  // calls report "Model not loaded". We recreate from cache and retry once (see below).
+  // SAFETY GATE (Article 4): runs ALWAYS — before the router and the model, regardless of any
+  // flag. A blocked request NEVER reaches the model. This is the pre-display gate that cannot
+  // be skipped; without it (the prior build) unsafe prompts went straight to the 0.5B.
+  const gate=(SPINE&&SPINE.safetyGate)?SPINE.safetyGate(text):{blocked:false};
+  // FLAG_ROUTER — Response Quality Layer v1: deterministic answer BEFORE the model (skipped if blocked).
+  const routerOn=!!(SPINE&&SPINE.FLAGS&&SPINE.FLAGS.FLAG_ROUTER);
+  const routerEntries=(SPINE&&SPINE.adaptMemories)?SPINE.adaptMemories(memories):[];
+  const routed=(!gate.blocked && routerOn&&SPINE.routeQuery)?SPINE.routeQuery(text,{ entries:routerEntries, persona:S.aiName, instructions:S.instructions }):null;
   const RECOVERABLE=/GPUBuffer|mapAsync|unmapped|device is lost|Device is lost|disposed|not loaded|reload\(/i;
   try{
-    // Generate with AUTOMATIC recovery: on a WebGPU fault / disposed-or-unloaded
-    // engine, recreate it from the CACHED model (no re-download) and retry the SAME
-    // prompt ONCE. The `recovered` one-shot guard prevents any retry loop; the
-    // original exception is always logged before recovery.
-    const MAX_ATTEMPTS=2;
-    let recovered=false;
-    for(let attempt=1; attempt<=MAX_ATTEMPTS; attempt++){
-      try{
-        full="";
-        // Lever 1 (device audit): NON-streaming generation. Streaming maps/unmaps a GPU
-        // buffer on every token chunk; that incremental mapping raced and faulted
-        // ("Buffer was unmapped before mapping was resolved", WebLLM #497) on the 2nd
-        // turn on this Adreno GPU. One decode = one readback. The dots cover the wait.
-        const res=await engine.chat.completions.create({ messages:sent, stream:false, temperature:0.7, max_tokens:256 });
-        full = res?.choices?.[0]?.message?.content || "";
-        finish = res?.choices?.[0]?.finish_reason || finish;
-        if(full){ bubble.textContent=full; thread.scrollTop=thread.scrollHeight; }
-        fatalErr=null; break;                       // generation completed
-      }catch(genErr){
-        fatalErr=genErr;
-        const msg=(genErr&&genErr.message?genErr.message:String(genErr));
-        console.error('[AUBS] inference error (attempt '+attempt+'):', genErr);  // (log the REAL exception)
-        if(RECOVERABLE.test(msg) && attempt<MAX_ATTEMPTS && !recovered){
-          // Engine lost/disposed/unloaded (mobile WebGPU). Recreate it from the CACHED
-          // model — no re-download — then retry the SAME prompt once. `recovered` makes
-          // this happen at most once per send, so it can never loop. The earlier build
-          // recreated mid-fault and raced; here we await a full reload before retrying.
-          recovered=true;
-          bubble.textContent="Reconnecting the engine… (a few seconds)";
-          const ok=await recoverEngine();
-          if(!ok){ break; }                              // recovery failed -> real error below
-          await new Promise(r=>setTimeout(r, 300));      // let the GPU settle
-        }else{
-          break;                                          // non-recoverable, already recovered, or out of retries
+    if(gate.blocked){
+      // Refuse safely; do NOT call the model and do NOT capture memories from harmful text.
+      full=(SPINE&&SPINE.safeResponse)?SPINE.safeResponse(gate.reason):"I can't help with that — it could cause harm.";
+      finish="blocked:"+gate.reason; bubble.textContent=full;
+      history.push({role:"assistant",content:full});
+      saveHistory(history.slice(1));
+      logProvenanceFor(text, full, [history[0],{role:"user",content:text}], t0, aiWrap, { handled:true, intent:gate.reason, source_of_answer:"rule", tag:"unknown", memory_ids_cited:[], grounding_source:null });
+    } else
+    if(routed && routed.handled){
+      // Deterministic route — NO model call. Identity/math/memory/capability/greeting/unsafe.
+      full=routed.answer; finish="router:"+routed.intent; bubble.textContent=full;
+      history.push({role:"assistant",content:full});
+      saveHistory(history.slice(1));
+      captureMemories(text);                          // statements can still seed memory
+      logProvenanceFor(text, full, [history[0],{role:"user",content:text}], t0, aiWrap, routed);
+    } else {
+      // Model path. Router-on-but-unhandled → short few-shot AUBS prompt; else identity/chat.
+      history[0]={ role:"system", content: (routerOn&&SPINE.fallbackPrompt)
+        ? SPINE.fallbackPrompt({ entries:routerEntries, persona:S.aiName, instructions:S.instructions })
+        : buildSystemPrompt(promptMode(text)) };
+      const sent=contextMessages();                   // exact messages sent to the model (logged in provenance)
+      // Generate with AUTOMATIC recovery: on a WebGPU fault / disposed-or-unloaded engine,
+      // recreate from the CACHED model and retry the SAME prompt once (recovered guard = no loop).
+      const MAX_ATTEMPTS=2;
+      let recovered=false;
+      for(let attempt=1; attempt<=MAX_ATTEMPTS; attempt++){
+        try{
+          full="";
+          // NON-streaming: one decode = one GPU readback (streaming's per-token buffer
+          // mapping faulted on this Adreno GPU). The dots cover the wait.
+          const res=await engine.chat.completions.create({ messages:sent, stream:false, temperature:0.7, max_tokens:256 });
+          full = res?.choices?.[0]?.message?.content || "";
+          finish = res?.choices?.[0]?.finish_reason || finish;
+          if(full){ bubble.textContent=full; thread.scrollTop=thread.scrollHeight; }
+          fatalErr=null; break;                       // generation completed
+        }catch(genErr){
+          fatalErr=genErr;
+          const msg=(genErr&&genErr.message?genErr.message:String(genErr));
+          console.error('[AUBS] inference error (attempt '+attempt+'):', genErr);
+          if(RECOVERABLE.test(msg) && attempt<MAX_ATTEMPTS && !recovered){
+            recovered=true;
+            bubble.textContent="Reconnecting the engine… (a few seconds)";
+            const ok=await recoverEngine();
+            if(!ok){ break; }
+            await new Promise(r=>setTimeout(r, 300));
+          }else{ break; }
         }
       }
-    }
-    if(full.length>0){
-      bubble.textContent=full;                       // keep whatever the model produced
-      history.push({role:"assistant",content:full});
-      saveHistory(history.slice(1));                 // persist turns (not the system prompt)
-      captureMemories(text);                         // auto-extract durable facts from the user's message
-      logProvenanceFor(text, full, sent, t0, aiWrap); // Checkpoint 0 spine: write provenance + Glass Box trace
-    }else if(fatalErr){
-      // Recovery impossible -> show the REAL error, never a generic "refresh" message.
-      const m=(fatalErr.message||String(fatalErr));
-      console.error('[AUBS] unrecoverable:', m, '·', gpuDiagStr());
-      bubble.textContent = RECOVERABLE.test(m)
-        ? ("The on-device engine couldn't recover. ["+gpuDiagStr()+"] Error: "+m)
-        : ("Error: "+m+"  ["+gpuDiagStr()+"]");
-    }else{
-      bubble.textContent="(No text came back. finish: "+(finish||"?")+" · model: "+(chosenModel||"?")+". Tap send again.)";
+      if(full.length>0){
+        // FLAG_ROUTER narrow cleanup: strip "language model"/false-identity boilerplate +
+        // collapse repetition. Never edits facts/numbers/refusals; reverts if it guts the text.
+        if(routerOn && SPINE.cleanModelOutput){ try{ const c=SPINE.cleanModelOutput(full); if(c&&c.text) full=c.text; }catch(_){} }
+        bubble.textContent=full;
+        history.push({role:"assistant",content:full});
+        saveHistory(history.slice(1));
+        captureMemories(text);
+        logProvenanceFor(text, full, sent, t0, aiWrap);
+      }else if(fatalErr){
+        const m=(fatalErr.message||String(fatalErr));
+        console.error('[AUBS] unrecoverable:', m, '·', gpuDiagStr());
+        bubble.textContent = RECOVERABLE.test(m)
+          ? ("The on-device engine couldn't recover. ["+gpuDiagStr()+"] Error: "+m)
+          : ("Error: "+m+"  ["+gpuDiagStr()+"]");
+      }else{
+        bubble.textContent="(No text came back. finish: "+(finish||"?")+" · model: "+(chosenModel||"?")+". Tap send again.)";
+      }
     }
   }finally{
     window.__busy=false; sendBtn.disabled=false; document.getElementById('box').focus(); thread.scrollTop=thread.scrollHeight;
@@ -780,35 +808,39 @@ function addMsg(role,text){
    The live system prompt injects all live memories, so memory_ids_in_prompt =
    every live memory id (honest). Grounding requires a verified [ID:x] citation
    (Article 3a); danger topics get the geo fact-check floor (Article 3b). */
-function logProvenanceFor(query, answer, sentMsgs, t0, aiWrap){
+function logProvenanceFor(query, answer, sentMsgs, t0, aiWrap, routed){
   if(!SPINE) return null;
   try{
     const entries=SPINE.adaptMemories(memories);
     const live=SPINE.liveEntries(entries);
     const idsInPrompt=live.map(e=>e.id);
     const meta=SPINE.buildPromptMeta(sentMsgs, idsInPrompt);
-    const cls=SPINE.classify(query);
-    // Checkpoint 0.6 (live): grounding now requires RELEVANCE — pass the user query so
-    // tagAnswer only grounds a cited memory that actually answers it. tolerantFormat
-    // accepts the [m_x] shorthand as well as [ID:x] (still gated by relevance).
-    let r=SPINE.tagAnswer({ answer, query, memory_ids_in_prompt:idsInPrompt, entries, classification:cls, tolerantFormat:true });
-    let tag=r.tag, cited=r.memory_ids_cited;
-    let groundingSource = (tag==='grounded') ? 'model_cited' : null;   // Article 3a (law): model emitted [ID:x]
-    // CANDIDATE Article 3a amendment (FLAG_SPINE_VERIFIED_GROUNDING, default OFF): if the
-    // model produced a relevant personal answer WITHOUT a citation (tag 'inferred'), let the
-    // spine deterministically verify the exact value and ground it as 'spine_verified'.
-    // Never upgrades general/unknown/identity, so identity (Art.12) can never ground.
-    if(tag==='inferred' && SPINE.FLAGS && SPINE.FLAGS.FLAG_SPINE_VERIFIED_GROUNDING && SPINE.verifyGrounding){
-      const v=SPINE.verifyGrounding({ answer, query, memory_ids_in_prompt:idsInPrompt, entries });
-      if(v.grounded){ tag='grounded'; cited=[v.id]; groundingSource='spine_verified'; }
+    let tag, cited, groundingSource, source='model';
+    if(routed && routed.handled){
+      // Router answer — tag/source come from the deterministic handler, honestly.
+      // A router memory recall IS grounded (the answer is the user_verified memory),
+      // source_of_answer:'rule'; identity/math/capability → general; unsafe → unknown.
+      tag=routed.tag; cited=routed.memory_ids_cited||[]; groundingSource=routed.grounding_source||null;
+      source=routed.source_of_answer||'rule';
+    } else {
+      const cls=SPINE.classify(query);
+      // Checkpoint 0.6: grounding requires RELEVANCE; tolerantFormat accepts [m_x].
+      let r=SPINE.tagAnswer({ answer, query, memory_ids_in_prompt:idsInPrompt, entries, classification:cls, tolerantFormat:true });
+      tag=r.tag; cited=r.memory_ids_cited;
+      groundingSource = (tag==='grounded') ? 'model_cited' : null;   // Article 3a (law): model emitted [ID:x]
+      // CANDIDATE amendment (FLAG_SPINE_VERIFIED_GROUNDING, default OFF).
+      if(tag==='inferred' && SPINE.FLAGS && SPINE.FLAGS.FLAG_SPINE_VERIFIED_GROUNDING && SPINE.verifyGrounding){
+        const v=SPINE.verifyGrounding({ answer, query, memory_ids_in_prompt:idsInPrompt, entries });
+        if(v.grounded){ tag='grounded'; cited=[v.id]; groundingSource='spine_verified'; }
+      }
+      if(!SPINE.dangerFactCheck(answer).ok){ tag='unknown'; cited=[]; groundingSource=null; }   // Article 3b override
     }
-    if(!SPINE.dangerFactCheck(answer).ok){ tag='unknown'; cited=[]; groundingSource=null; }   // Article 3b override
     const latency=((window.performance&&performance.now)?performance.now():0)-t0;
     const prov=SPINE.makeProvenance({
       query, timestamp:(typeof Date!=='undefined'?Date.now():0),
       prompt_hash:meta.prompt_hash, memory_ids_in_prompt:idsInPrompt, memory_ids_cited:cited,
       tag, grounding_source:groundingSource, tier_used:(currentTier==='fast'?'low':'mid'), flags_active:SPINE.activeFlags(),
-      source_of_answer:'model', latency_ms:Math.round(latency)
+      source_of_answer:source, latency_ms:Math.round(latency)
     });
     SPINE.logProvenance(prov);
     attachWhy(aiWrap, prov);
