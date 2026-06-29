@@ -93,7 +93,10 @@
       // falls back to AUBS. identityV2 / FLAG_IDENTITY_V2 default OFF (byte-identical when off).
       appIdentity: opts.appIdentity || null,
       identityV2: opts.identityV2,
+      // Unified Identity: the resolver reads this config (assistant name / user name / style).
+      identityConfig: opts.identityConfig || null,
       userPersonaName: opts.userPersonaName || null,
+      userName: opts.userName || null,
       intent_id: opts.intent_id, plan_id: opts.plan_id, created_at: opts.created_at, source: opts.source || "user"
     })).then(function (state) {
       state.ui = uiView(state);

@@ -34,12 +34,12 @@ function run(textIn, gen, over) {
     const store = L.createMemoryStore(); const g = spyGen();
     const s = await run("Who are you?", g, { appIdentity: SPLENDOR, identityV2: true, ledgerStore: store, signingKey: key.privateKey });
     const v = await L.verifyLedger(await store.all(), key.publicKey);
-    t("Splendor: 'Who are you?' → \"I'm Splendor.\"", s.ui.text === "I'm Splendor." && s.output_text === "I'm Splendor.");
+    t("Splendor: 'Who are you?' → \"I'm Splendor, running locally through AUBS.\"", s.ui.text === "I'm Splendor, running locally through AUBS." && /\bSplendor\b/.test(s.output_text) && /\bAUBS\b/.test(s.output_text));
     t("Splendor: model called 0×", g.calls() === 0);
-    t("Splendor: exactly ONE DecisionRecord (execution_type=identity, provider=app_declared)", s.counters.records === 1 && s.record.execution_type === "identity" && s.record.provider === "app_declared");
+    t("Splendor: exactly ONE DecisionRecord (execution_type=identity, provider=identity)", s.counters.records === 1 && s.record.execution_type === "identity" && s.record.provider === "identity");
     t("Splendor: ledger verifies", v.ok === true && v.count === 1);
-    t("Splendor: record provenance = app_declared, model_called:false, carries app_id + contract id", s.record.explanation.identity_source === "app_declared" && s.record.explanation.model_called === false && s.record.explanation.app_id === "splendor" && !!s.record.explanation.execution_contract_id);
-    t("Splendor: 'Why?' says answered from app declaration, model not called", /app declaration/i.test(s.explanation) && /not called/i.test(s.explanation) && s.ui.identity && s.ui.identity.model_called === false);
+    t("Splendor: record provenance = app source, model_called:false, carries app_id + contract id", s.record.explanation.identity_source === "app" && s.record.explanation.assistant_name_source === "app" && s.record.explanation.model_called === false && s.record.explanation.app_id === "splendor" && !!s.record.explanation.execution_contract_id);
+    t("Splendor: 'Why?' says answered from declared truth, model not called", /declared truth/i.test(s.explanation) && /not called/i.test(s.explanation) && s.ui.identity && s.ui.identity.model_called === false);
   }
 
   // ── 2) LYLO identity → "I'm LYLO.", same machinery (apps are interchangeable) ───────────
@@ -53,7 +53,7 @@ function run(textIn, gen, over) {
   {
     const g = spyGen();
     const s = await run("Who are you?", g, { appIdentity: SPLENDOR, identityV2: true, userPersonaName: "Zorg", ledgerStore: L.createMemoryStore(), signingKey: key.privateKey });
-    t("Persona guard: persona 'Zorg' does NOT override app identity → still \"I'm Splendor.\"", s.ui.text === "I'm Splendor." && !/Zorg/.test(s.ui.text) && g.calls() === 0);
+    t("Persona guard: persona 'Zorg' does NOT override app identity → still Splendor (app>user)", /^I'm Splendor\b/.test(s.ui.text) && !/Zorg/.test(s.ui.text) && g.calls() === 0);
   }
 
   // ── 4) Confabulation impossible: the model's "Advanced User" never reaches the user ─────
@@ -92,10 +92,11 @@ function run(textIn, gen, over) {
     const g = spyGen("I'm AUBS, your on-device assistant.");
     const s = await run("Who are you?", g, { appIdentity: SPLENDOR, identityV2: false, ledgerStore: L.createMemoryStore(), signingKey: key.privateKey });
     t("Flag-OFF: identity query goes to the MODEL (no deterministic route), no identity record", g.calls() === 1 && !s.identity && s.record.execution_type !== "identity");
-    // and with NO app identity + flag ON, fallback is AUBS (bare OS)
+    // Unified Identity: with NO app identity + flag ON, the resolver falls back to AUBS and STILL
+    // answers deterministically (model never the source) — bare-OS answer, no redundant runtime clause.
     const g2 = spyGen();
     const s2 = await run("Who are you?", g2, { identityV2: true, ledgerStore: L.createMemoryStore(), signingKey: key.privateKey }); // no appIdentity
-    t("No app declared + flag ON: model still answers (no app identity to inject) — fallback path", g2.calls() === 1 && !s2.identity);
+    t("No app + flag ON: resolver falls back to AUBS, deterministic 'I'm AUBS.', model 0×", g2.calls() === 0 && s2.ui.text === "I'm AUBS." && s2.identity && s2.identity.assistant_name_source === "default");
   }
 
   // ── Execution Contract is distinct from the Provider Contract (schema sanity) ───────────

@@ -49,6 +49,7 @@
         memory for identity, and a user persona is a style layer only. ---------- */
   var SYSTEM_IDENTITY = Object.freeze({
     name_default: "AUBS",
+    expansion: "Autonomous Unit Brain System",   // CANONICAL product fact — the model NEVER invents it (Unified Identity)
     role: "a private, on-device AI assistant — The Good Neighbor Guard",
     creed: "Truth · Safety · We Got Your Back",
     statement: "I am AUBS, a private on-device AI. I run entirely on your device; nothing you say leaves it."
@@ -98,6 +99,112 @@
     return "I'm " + resolved.name + ".";
   }
 
+  /* ========================================================================================
+     UNIFIED IDENTITY GOVERNANCE (the One Rule applied to identity). Three concepts kept
+     SEPARATE, one resolved object, one resolver, read by every subsystem. The model is never
+     the source of truth for any of the five governed answers. Behind FLAG_IDENTITY_V2 (OFF =
+     byte-identical: nothing below runs unless a caller opts in).
+       • Assistant identity  — what it calls itself ("Tom")        ← resolved by precedence
+       • Product / runtime    — what it runs on ("AUBS")            ← constant
+       • Product fact         — what AUBS stands for                ← constant (never invented)
+     ======================================================================================== */
+  // The single resolver. config = { assistantName, userName, tone, instructions }. Precedence
+  // for the assistant name: governed app > user-configured > product fallback ("AUBS").
+  function resolveRuntimeIdentity(config, appIdentity) {
+    config = config || {};
+    var PRODUCT_NAME = SYSTEM_IDENTITY.name_default;          // "AUBS" — the runtime/product
+    var PRODUCT_EXPANSION = SYSTEM_IDENTITY.expansion;        // canonical, frozen
+    var name, source;
+    if (appIdentity && appIdentity.assistant_name) { name = String(appIdentity.assistant_name).trim(); source = "app"; }
+    else if (config.assistantName && String(config.assistantName).trim()) { name = String(config.assistantName).trim(); source = "user"; }
+    else { name = PRODUCT_NAME; source = "default"; }
+    return {
+      assistantDisplayName: name, assistantNameSource: source,
+      productName: PRODUCT_NAME, productExpansion: PRODUCT_EXPANSION,
+      appDeclaredIdentity: appIdentity ? (appIdentity.assistant_name || null) : null,
+      appId: appIdentity ? (appIdentity.app_id || null) : null,
+      personaRef: appIdentity ? (appIdentity.persona_ref || null) : null,
+      userName: (config.userName && String(config.userName).trim()) ? String(config.userName).trim() : null,
+      activeTone: config.tone || "", customInstructions: config.instructions || "",
+      precedence: { assistant: "app>user>default", chosen: source }
+    };
+  }
+
+  // ── Detectors for the five governed routes (used only on the resolved path) ──────────────
+  function isAcronymQuery(q) {
+    return /\b(stands? for|acronym|abbreviation|what does (?:aubs|it) (?:stand for|mean))\b/i.test(String(q || ""));
+  }
+  function isUserNameQuery(q) {
+    var s = String(q || "");
+    return /\b(what'?s my name|what is my name|who am i|do you know my name|what do you call me)\b/i.test(s) && !/\byour name\b/i.test(s);
+  }
+  function isIntroduceQuery(q) {
+    return /\b(introduce yourself|tell me about yourself|introduce your ?self)\b/i.test(String(q || ""));
+  }
+  function acronymAnswer() { return SYSTEM_IDENTITY.name_default + " stands for " + SYSTEM_IDENTITY.expansion + "."; }
+
+  /* The single deterministic identity router. Takes a RESOLVED identity object and returns
+     { handled, kind, answer, model_called:false } for the five governed intents, or
+     { handled:false } to let the governed model turn proceed. The model is NEVER the source. */
+  function identityRoute(q, resolved) {
+    resolved = resolved || {};
+    var s = String(q || "");
+    var name = resolved.assistantDisplayName || SYSTEM_IDENTITY.name_default;
+    // 1) USER name — about the USER, never the assistant.
+    if (isUserNameQuery(s)) {
+      return { handled: true, kind: "user_name", model_called: false,
+               answer: resolved.userName ? ("Your name is " + resolved.userName + ".") : "I don't know yet — what should I call you?" };
+    }
+    // 2) ACRONYM — a PRODUCT fact, separate from the assistant's identity. Canonical, never invented.
+    if (isAcronymQuery(s)) {
+      return { handled: true, kind: "acronym", model_called: false, answer: acronymAnswer() };
+    }
+    var product = resolved.productName || SYSTEM_IDENTITY.name_default;
+    var sameAsProduct = name.toLowerCase() === product.toLowerCase();   // bare-OS / no custom name
+    // 3) INTRODUCE — name + runtime, both true at once (no redundant clause when name IS the runtime).
+    if (isIntroduceQuery(s)) {
+      return { handled: true, kind: "introduce", model_called: false,
+               answer: sameAsProduct ? ("I'm " + name + ", your private on-device assistant.")
+                                     : ("I'm " + name + ", your private assistant running on " + product + ".") };
+    }
+    // 4) ASSISTANT identity — "who are you" / "your name" / "are you X".
+    if (identityQueryV2(s, name) || identityQueryV2(s, product)) {
+      // "who are you" gets name + runtime context; "what's your name" is just the name.
+      if (/\bwho are you\b/i.test(s) && !sameAsProduct) return { handled: true, kind: "assistant_identity", model_called: false, answer: "I'm " + name + ", running locally through " + product + "." };
+      return { handled: true, kind: "assistant_identity", model_called: false, answer: "I'm " + name + "." };
+    }
+    return { handled: false };
+  }
+
+  /* Post-generation GUARD (the safety net for SIDEWAYS turns where the model drifts into
+     self-description). Deterministic, no model in the loop. Corrects: (a) a wrong assistant-name
+     self-claim, (b) any non-canonical AUBS expansion, (c) an invented user name when unknown.
+     Only rewrites identity claims; ordinary text is untouched. */
+  function identityGuard(text, resolved) {
+    if (!text || !resolved) return text;
+    var out = String(text);
+    var name = resolved.assistantDisplayName || SYSTEM_IDENTITY.name_default;
+    var esc = function (x) { return String(x).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); };
+    // (b) any "AUBS (stands for|short for|…) <X>" where X ≠ canonical → canonical expansion.
+    out = out.replace(/\bAUBS\b[,]?\s+(?:stands for|short for|which stands for|that stands for|is short for|means|standing for|aka|also known as)\s+[^.?!\n]*/gi,
+      function (m) { return /Autonomous Unit Brain System/i.test(m) ? m : ("AUBS stands for " + SYSTEM_IDENTITY.expansion); });
+    // (a) wrong assistant-name self-claim of the OS name → the declared name (when name ≠ AUBS).
+    // Covers "I'm AUBS", "I am AUBS", "my name is AUBS", "i'm called AUBS", "call me AUBS",
+    // each optionally trailed by an invented expansion.
+    if (name.toLowerCase() !== "aubs") {
+      var expTail = "(?:[,]?\\s+(?:short for|which stands for|that stands for|stands for|aka|also known as)\\s+[^.?!\\n]*)?";
+      out = out.replace(new RegExp("\\bmy name(?:'?s| is)\\s+AUBS\\b" + expTail, "gi"), "My name is " + name);
+      out = out.replace(new RegExp("\\b(?:I(?:'?m| am)|i'?m called|call me)\\s+AUBS\\b" + expTail, "gi"), "I'm " + name);
+    }
+    // invented expansion attached to the DECLARED name → keep the name, drop the invention
+    out = out.replace(new RegExp("\\bI(?:'?m| am)\\s+" + esc(name) + "\\b[,]?\\s+(?:short for|which stands for|that stands for|stands for|aka|also known as)\\s+[^.?!\\n]*", "gi"), "I'm " + name);
+    // (c) invented user name when unknown: "your name is <X>" → honest unknown (case-insensitive)
+    if (!resolved.userName) {
+      out = out.replace(/\byour name(?:'?s| is)\s+[A-Z][A-Za-z'’-]*/gi, "I don't know your name yet");
+    }
+    return out;
+  }
+
   /* identityPreamble — the leading system text (Article 12 in prose).
      Checkpoint 0 device-audit fix (Bug 2): the system identity is IMMUTABLE and
      always leads the prompt. A user-supplied persona name/tone is a STYLE costume
@@ -107,6 +214,21 @@
   function identityPreamble(personaName, opts) {
     opts = opts || {};
     var id = SYSTEM_IDENTITY;
+    // Unified Identity (resolved path): when a ResolvedIdentity is supplied, the model is TOLD
+    // the truth — it speaks AS the resolved assistant name, AUBS is the runtime (not its name),
+    // and the canonical AUBS expansion is fixed. This is the prompt BACKSTOP; the governed routes
+    // are the guarantee. Absent a resolved object → the original wording (flag-OFF byte-identical).
+    if (opts.resolved && opts.resolved.assistantDisplayName) {
+      var R = opts.resolved, nm = R.assistantDisplayName, style = String(personaName == null ? "" : personaName).trim();
+      var hasStyle = style && style.toLowerCase() !== nm.toLowerCase() && style.toLowerCase() !== "aubs";
+      var rp = "You are " + nm + ", a private assistant that lives on this phone. You run on " + R.productName +
+        " — the " + R.productExpansion + " — the local runtime on this device. Your name is " + nm + "; " +
+        R.productName + " is the system you run on, not your name. Never invent a different meaning for " +
+        R.productName + " — it stands for " + R.productExpansion + ". If asked the user's name and it isn't known, " +
+        "say you don't know yet — never guess. Be honest, answer directly, never call yourself a language model, and keep replies short.";
+      if (hasStyle) rp += " Speak in a \"" + style + "\" style — that's voice only, not your name.";
+      return rp;
+    }
     var persona = String(personaName == null ? "" : personaName).trim();
     var hasPersona = persona && persona.toLowerCase() !== id.name_default.toLowerCase();
     // LEAN (B-minimal default for normal chat): one short identity line + a light style
@@ -930,6 +1052,9 @@
     SYSTEM_IDENTITY: SYSTEM_IDENTITY, isIdentityQuery: isIdentityQuery, identityPreamble: identityPreamble,
     // Art 12 v2 (Slice 0, FLAG_IDENTITY_V2): app-declared identity resolution + deterministic answer
     resolveIdentity: resolveIdentity, answerIdentity: answerIdentity, identityQueryV2: identityQueryV2,
+    // Unified Identity Governance — one resolver + one router + one guard, read by everyone.
+    resolveRuntimeIdentity: resolveRuntimeIdentity, identityRoute: identityRoute, identityGuard: identityGuard,
+    isAcronymQuery: isAcronymQuery, isUserNameQuery: isUserNameQuery, acronymAnswer: acronymAnswer,
     // utils
     hashString: hashString,
     // Art 2
