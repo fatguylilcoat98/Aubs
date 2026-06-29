@@ -104,8 +104,12 @@ function egressPlan() {
   const fs = require("fs"), path = require("path");
   const dir = path.join(__dirname, "..", "core", "providers");
   const banned = /\bfetch\s*\(|XMLHttpRequest|require\(['"](https?|node:https?|axios|node-fetch)['"]\)|WebSocket/;
-  const offenders = fs.readdirSync(dir).filter(f => /\.js$/.test(f)).filter(f => banned.test(fs.readFileSync(path.join(dir, f), "utf8")));
-  ok("NO real network primitives in the provider framework", offenders.length === 0);
+  // The framework + fakes must contain NO network primitives. The OpenAI reference adapter
+  // (M8) is the ONE sanctioned network-capable file (default transport uses fetch; it is
+  // injectable so tests never hit the network) — excluded from this guard by design.
+  const NETWORK_ALLOWED = ["openai-adapter.js"];
+  const offenders = fs.readdirSync(dir).filter(f => /\.js$/.test(f) && NETWORK_ALLOWED.indexOf(f) === -1).filter(f => banned.test(fs.readFileSync(path.join(dir, f), "utf8")));
+  ok("NO network primitives in the framework/fakes (OpenAI adapter is the sole sanctioned exception)", offenders.length === 0);
 
   console.log("\nAssertions: " + pass + "/" + (pass + fail) + " passed");
   if (fail) { console.log("FAILURES:\n" + FA.join("\n")); process.exit(1); }

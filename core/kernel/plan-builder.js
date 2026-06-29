@@ -20,10 +20,13 @@
       steps = [{ step_type: "refusal", detail: options.refusal_reason || "refused" }];
     } else if (kind === "deterministic_answer") {
       steps = [{ step_type: "deterministic_answer", detail: "precomputed" }];
-    } else { // model_call (local)
+    } else { // model_call
       steps = [];
       if (options.memory_read !== false) steps.push({ step_type: "memory_read", target: "user" });
-      steps.push({ step_type: "model_call", target: options.provider || "local", egress: options.egress || "none" });
+      // The step's egress honors the Intent's declared ceiling (so a cloud plan actually
+      // declares egress and GEL/eligibility can govern it). Explicit options.egress wins.
+      var egress = options.egress || (intent && intent.constraints && intent.constraints.max_egress) || "none";
+      steps.push({ step_type: "model_call", target: options.provider || "local", egress: egress });
     }
     return CAC.builders.buildPlan(intent, steps, { plan_id: options.plan_id, created_at: options.created_at });
   }
