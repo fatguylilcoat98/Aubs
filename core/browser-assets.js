@@ -1,7 +1,8 @@
 /* ============================================================================
    AUBS — core/browser-assets.js  (GENERATED — do not edit by hand)
    Source of truth: core/cac/schemas/*.json, core/gel/policy-bundle.schema.json,
-   core/gel/default-policy-bundle.json. Regenerate: node tools/gen-browser-assets.cjs
+   core/gel/default-policy-bundle.json, core/memory/memory.schema.json,
+   core/skills/skill.schema.json. Regenerate: node tools/gen-browser-assets.cjs
 
    Loaded as a classic <script> BEFORE the CAC/GEL/kernel modules so their browser
    branches can read these globals. Inert: defines globals only, runs no behavior.
@@ -572,5 +573,260 @@
       "match": {}
     }
   ]
+};
+  window.AUBS_MEMORY_SCHEMA = {
+  "$id": "aubs/memory/tsm",
+  "title": "AUBS Typed Scoped Memory record v0.1",
+  "description": "A governed memory asset. Carries ownership, scope, provenance, confidence, lifecycle, and tamper-evidence (prev_hash/record_hash/signature added by the store). Append-only: a delete is a superseding/deactivating record, never a physical erase.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_version",
+    "memory_id",
+    "type",
+    "user_id",
+    "owner",
+    "scope",
+    "content",
+    "inferred",
+    "confidence",
+    "source_classification",
+    "provenance",
+    "created_at"
+  ],
+  "properties": {
+    "record_version": {
+      "const": "tsm-1"
+    },
+    "memory_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "type": {
+      "enum": [
+        "FACT",
+        "PREFERENCE",
+        "PROFILE",
+        "TASK",
+        "DOCUMENT",
+        "SUMMARY",
+        "SYSTEM",
+        "INFERENCE"
+      ]
+    },
+    "user_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "owner": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scope": {
+      "enum": [
+        "private",
+        "conversation",
+        "workspace",
+        "family",
+        "organization",
+        "device"
+      ]
+    },
+    "read_scopes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "content": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "inferred": {
+      "type": "boolean"
+    },
+    "confidence": {
+      "type": "number"
+    },
+    "source_classification": {
+      "enum": [
+        "user_stated",
+        "model_inferred",
+        "document",
+        "system",
+        "imported"
+      ]
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "timestamp"
+      ],
+      "properties": {
+        "created_from": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversation_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "decision_record": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "string"
+        }
+      }
+    },
+    "evidence_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "supersedes": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "deleted": {
+      "type": "boolean"
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "updated_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "expires_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+};
+  window.AUBS_SKILL_SCHEMA = {
+  "$id": "aubs/skills/skill",
+  "title": "AUBS Skill Manifest v0.1",
+  "description": "A declared, governed capability. A skill describes work and REQUESTS resources (providers, memory, tools) through the constitution — it never executes them. Runtime methods (execute/healthCheck) are validated structurally; this schema validates the declared manifest.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "skill_id",
+    "name",
+    "version",
+    "description",
+    "inputs",
+    "outputs",
+    "required_permissions",
+    "allowed_tools",
+    "allowed_providers",
+    "allowed_memory_scopes",
+    "requires_network",
+    "requires_user_confirmation",
+    "risk_level",
+    "supported_operations"
+  ],
+  "properties": {
+    "skill_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string"
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "outputs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "required_permissions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "allowed_tools": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "allowed_providers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "allowed_memory_scopes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "requires_network": {
+      "type": "boolean"
+    },
+    "requires_user_confirmation": {
+      "type": "boolean"
+    },
+    "risk_level": {
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ]
+    },
+    "supported_operations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "metadata": {
+      "type": "object"
+    }
+  }
 };
 })();

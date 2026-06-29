@@ -357,6 +357,56 @@ body{background:var(--bgbase);color:var(--ink);font-family:var(--font-body);
 <script src="core/kernel/execute.js"></script>
 <script src="core/kernel/index.js"></script>
 <script src="core/kernel/chat-bridge.js"></script>
+<!-- AUBS full constitutional stack (Milestones 5–13) — providers, memory, tools, skills,
+     planner, replay, constitution. Classic scripts: they ONLY define globals (window.AUBS_*)
+     and run no behavior on load. Completely inert unless FLAG_CONSTITUTION_CHAT is on
+     (?spine=1); with the flag off the app behaves exactly as before. Order is topological:
+     each module loads after every global it reads at load time. -->
+<script src="core/providers/capabilities.js"></script>
+<script src="core/providers/drift-shield.js"></script>
+<script src="core/providers/eligibility.js"></script>
+<script src="core/providers/registry.js"></script>
+<script src="core/providers/fake-providers.js"></script>
+<script src="core/providers/openai-adapter.js"></script>
+<script src="core/providers/index.js"></script>
+<script src="core/memory/types.js"></script>
+<script src="core/memory/store.js"></script>
+<script src="core/memory/permissions.js"></script>
+<script src="core/memory/replay-memory.js"></script>
+<script src="core/memory/service.js"></script>
+<script src="core/memory/index.js"></script>
+<script src="core/tools/permissions.js"></script>
+<script src="core/tools/explanation.js"></script>
+<script src="core/tools/drift-shield.js"></script>
+<script src="core/tools/eligibility.js"></script>
+<script src="core/tools/execute.js"></script>
+<script src="core/tools/fake-tools.js"></script>
+<script src="core/tools/registry.js"></script>
+<script src="core/tools/replay-tool.js"></script>
+<script src="core/tools/index.js"></script>
+<script src="core/skills/explanation.js"></script>
+<script src="core/skills/eligibility.js"></script>
+<script src="core/skills/execute.js"></script>
+<script src="core/skills/fake-skills.js"></script>
+<script src="core/skills/registry.js"></script>
+<script src="core/skills/replay-skill.js"></script>
+<script src="core/skills/index.js"></script>
+<script src="core/planner/graph.js"></script>
+<script src="core/planner/summary.js"></script>
+<script src="core/planner/record.js"></script>
+<script src="core/planner/estimate.js"></script>
+<script src="core/planner/planner.js"></script>
+<script src="core/planner/replay-planner.js"></script>
+<script src="core/planner/index.js"></script>
+<script src="core/replay/evidence.js"></script>
+<script src="core/replay/replay-engine.js"></script>
+<script src="core/replay/index.js"></script>
+<script src="core/constitution/explain.js"></script>
+<script src="core/constitution/graph.js"></script>
+<script src="core/constitution/pipeline.js"></script>
+<script src="core/constitution/audit.js"></script>
+<script src="core/constitution/index.js"></script>
+<script src="core/constitution/chat.js"></script>
 <script type="module">
 import * as webllm from "https://esm.run/@mlc-ai/web-llm@0.2.84";
 const SPINE = (typeof window!=="undefined" && window.AUBS_SPINE) ? window.AUBS_SPINE : null;
@@ -399,6 +449,23 @@ try{
 }catch(e){}
 function kernelChatOn(){ return !!(FLAG_KERNEL_CHAT && typeof window!=="undefined" && window.AUBS_KERNEL && window.AUBS_KERNEL.executeIntent && window.AUBS_KERNEL_CHAT && window.AUBS_KERNEL_CHAT.runKernelChat); }
 
+/* ── Milestone 14 — FLAG_CONSTITUTION_CHAT (default OFF) ─────────────────────────────
+   When ON, the REAL chat model turn runs through the FULL constitutional pipeline (the
+   "One Spine"): user message → CAC Intent → deterministic Plan (planner) → GEL → Provider
+   Eligibility → the SAME on-device WebLLM completion (drift shield) → Grounding → ONE signed
+   DecisionRecord → Ledger → Replay evidence → Level 1 explanation → normal chat bubble. This
+   is a STRICT superset of the M4 kernel path. With the flag OFF, none of it executes and AUBS
+   behaves exactly as today. Enable per-session: ?spine=1 (or aubs_spine=1). The working
+   offline loop is never replaced — the local provider calls into it. Supersedes ?kernel=1. */
+let FLAG_CONSTITUTION_CHAT=false;
+try{
+  const qp=new URLSearchParams(location.search);
+  if(qp.get('spine')==='1'||localStorage.getItem('aubs_spine')==='1') FLAG_CONSTITUTION_CHAT=true;
+  if(qp.get('spine')==='0'){ FLAG_CONSTITUTION_CHAT=false; try{ localStorage.removeItem('aubs_spine'); }catch(_){} }
+  if(qp.get('spine')==='1'){ try{ localStorage.setItem('aubs_spine','1'); }catch(_){} }
+}catch(e){}
+function constitutionChatOn(){ return !!(FLAG_CONSTITUTION_CHAT && typeof window!=="undefined" && window.AUBS_CONSTITUTION_CHAT && window.AUBS_CONSTITUTION_CHAT.runConstitutionalChat); }
+
 /* ── Milestone 0 — Ledger wiring (additive, behind FLAG_LEDGER) ──────────────────
    When ON, every provenance record is ALSO appended to a real append-only, hash-chained,
    Ed25519-signed IndexedDB ledger. When OFF, none of this runs. A device key is generated
@@ -408,7 +475,7 @@ const LEDGER = (typeof window!=="undefined" && window.AUBS_LEDGER) ? window.AUBS
 function ledgerOn(){ return !!(SPINE&&SPINE.FLAGS&&SPINE.FLAGS.FLAG_LEDGER&&LEDGER&&typeof indexedDB!=="undefined"); }
 // Kernel mode (M4) also writes DecisionRecords — into the SAME ledger the verifier reads —
 // so the ledger initialises whenever EITHER flag wants it.
-function ledgerWanted(){ return !!(LEDGER&&typeof indexedDB!=="undefined"&&(ledgerOn()||kernelChatOn())); }
+function ledgerWanted(){ return !!(LEDGER&&typeof indexedDB!=="undefined"&&(ledgerOn()||kernelChatOn()||constitutionChatOn())); }
 let _ledgerCtx=null, _ledgerInit=null;
 function _keyDB(){ return new Promise((res,rej)=>{ const r=indexedDB.open("aubs_ledger_keys",1); r.onupgradeneeded=()=>{ const db=r.result; if(!db.objectStoreNames.contains("meta")) db.createObjectStore("meta"); }; r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
 async function _loadOrCreateKey(){
@@ -689,7 +756,7 @@ applyAppearance();
 
 // Build marker — lets us confirm on-device exactly which code is live (the service
 // worker can otherwise serve a stale spine.js / HTML). Bump this with each shipped change.
-const BUILD="cp0-kernel-wrap-m4 · governed-local";
+const BUILD="cp0-constitution-chat-m14 · governed-local";
 console.log("[AUBS] build:", BUILD, "· spine:", (typeof SPINE!=="undefined"&&SPINE)?SPINE.SPINE_VERSION:"NOT LOADED");
 (function(){ const el=document.getElementById('buildTag'); if(el) el.textContent=BUILD+(typeof SPINE!=="undefined"&&SPINE?(" · spine "+SPINE.SPINE_VERSION):" · spine MISSING"); })();
 
@@ -846,7 +913,13 @@ window.send=async function(){
         ? SPINE.fallbackPrompt({ entries:routerEntries, persona:S.aiName, instructions:S.instructions })
         : buildSystemPrompt(promptMode(text)) };
       const sent=contextMessages();                   // exact messages sent to the model (logged in provenance)
-      if(kernelChatOn()){
+      if(constitutionChatOn()){
+        // Milestone 14 (FLAG_CONSTITUTION_CHAT): run this real model turn through the FULL
+        // constitutional pipeline — Intent→Plan(planner)→GEL→Eligibility→(the SAME WebLLM
+        // completion : block)→Grounding→ONE DecisionRecord→Ledger→Replay→Level 1 explanation.
+        // A strict superset of the kernel path; the working loop is not replaced.
+        await runModelTurnThroughConstitution(text, sent, bubble, aiWrap, t0, routerOn);
+      } else if(kernelChatOn()){
         // Milestone 4 (FLAG_KERNEL_CHAT): wrap this real model turn in the kernel —
         // Intent→Plan→GEL→(allow? the SAME WebLLM completion the else-branch uses : block)
         // →Result/Failure→DecisionRecord→Level 1 explanation. The working loop is not replaced.
@@ -957,6 +1030,64 @@ async function runModelTurnThroughKernel(text, sent, bubble, aiWrap, t0, routerO
     captureMemories(text);
   }else{
     // blocked (policy) or failed (engine) — show the honest message; do not fabricate an answer.
+    bubble.textContent=ui.text;
+    if(ui.blocked){ history.push({role:"assistant",content:ui.text}); saveHistory(history.slice(1)); }
+  }
+  attachKernelWhy(aiWrap, res);
+  if(typeof refreshLedgerRow==="function") refreshLedgerRow();
+}
+/* ── Milestone 14 — run one model turn through the FULL constitutional pipeline (only when
+   FLAG_CONSTITUTION_CHAT). The pipeline's local provider calls `generate()` below — the SAME
+   WebLLM completion + recovery the other paths use (one engine; nothing is loaded twice). GEL
+   and provider eligibility decide first: on allow+eligible the model runs; otherwise it is
+   NEVER called. Every terminal path writes exactly ONE signed DecisionRecord into the same
+   ledger "Verify integrity" reads. We never silently fall back — errors are shown and recorded. */
+async function runModelTurnThroughConstitution(text, sent, bubble, aiWrap, t0, routerOn){
+  // generate(): the working offline loop, wrapped. Throws on an unrecoverable fault so the
+  // pipeline can record a CAC Failure; returns {text, finish} on success. (Same as the kernel path.)
+  const generate=async ()=>{
+    let full=""; let finish=""; let fatalErr=null; let recovered=false;
+    const MAX_ATTEMPTS=2;
+    for(let attempt=1; attempt<=MAX_ATTEMPTS; attempt++){
+      try{
+        const res=await engine.chat.completions.create({ messages:sent, stream:false, temperature:0.7, max_tokens:256 });
+        full=res?.choices?.[0]?.message?.content||"";
+        finish=res?.choices?.[0]?.finish_reason||finish;
+        fatalErr=null; break;
+      }catch(genErr){
+        fatalErr=genErr;
+        const msg=(genErr&&genErr.message?genErr.message:String(genErr));
+        console.error('[AUBS spine] inference error (attempt '+attempt+'):', genErr);
+        if(RECOVERABLE.test(msg) && attempt<MAX_ATTEMPTS && !recovered){
+          recovered=true; bubble.textContent="Reconnecting the engine… (a few seconds)";
+          const okR=await recoverEngine(); if(!okR) break; await new Promise(r=>setTimeout(r,300));
+        }else{ break; }
+      }
+    }
+    if(!full && fatalErr) throw fatalErr;          // let the pipeline turn this into a CAC Failure
+    return { text:full, finish };
+  };
+  let res;
+  try{
+    const c=await ensureLedger();                  // same IndexedDB ledger the verifier reads
+    res=await window.AUBS_CONSTITUTION_CHAT.runConstitutionalChat({
+      text, generate, model_id:(chosenModel||"local-model"),
+      ledgerStore:c?c.store:null, signingKey:(c&&c.keys)?c.keys.privateKey:null
+      // bundle omitted → pipeline uses the default-allow-local bundle (local chat is allowed)
+    });
+  }catch(e){
+    console.error('[AUBS spine] pipeline error (NOT silently falling back):', e, '·', gpuDiagStr());
+    bubble.textContent="Constitution path error: "+(e&&e.message?e.message:e)+"  ["+gpuDiagStr()+"]";
+    return;
+  }
+  const ui=res.ui||{};
+  if(ui.ok){
+    let outText=ui.text;
+    if(routerOn && SPINE && SPINE.cleanModelOutput){ try{ const cc=SPINE.cleanModelOutput(outText); if(cc&&cc.text) outText=cc.text; }catch(_){} }
+    bubble.textContent=outText;
+    history.push({role:"assistant",content:outText}); saveHistory(history.slice(1));
+    captureMemories(text);
+  }else{
     bubble.textContent=ui.text;
     if(ui.blocked){ history.push({role:"assistant",content:ui.text}); saveHistory(history.slice(1)); }
   }
