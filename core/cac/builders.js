@@ -122,7 +122,47 @@
     return V.assertValid(V.schema("failure"), f, "failure");
   }
 
-  var API = { buildIntent: buildIntent, buildPlan: buildPlan, buildGovernanceDecision: buildGovernanceDecision, buildResult: buildResult, buildFailure: buildFailure };
+  // Execution Contract (Slice 0): the per-turn governed envelope the kernel mints and hands to
+  // a provider. Deterministic, validated, fail-closed — a builder can never emit an invalid
+  // contract. The provider receives this; it decides none of it.
+  function buildExecutionContract(options) {
+    options = options || {};
+    var ai = options.app_identity || {};
+    var v = options.verdict || {};
+    var oc = options.output_constraints || {};
+    var c = {
+      cac_version: V.CAC_VERSION,
+      contract_id: options.contract_id || genId("xc"),
+      intent_id: options.intent_id || genId("intent"),
+      app_identity: {
+        assistant_name: ai.assistant_name != null ? ai.assistant_name : "AUBS",
+        persona_ref: ai.persona_ref != null ? ai.persona_ref : "aubs-default",
+        app_id: ai.app_id != null ? ai.app_id : "aubs"
+      },
+      user_intent: options.user_intent != null ? options.user_intent : "",
+      allowed_provider: options.allowed_provider !== undefined ? options.allowed_provider : null,
+      allowed_tools: (options.allowed_tools || []).slice(),
+      allowed_memory_scopes: (options.allowed_memory_scopes || []).slice(),
+      verdict: {
+        decision: v.decision || "deny",
+        winning_rule: v.winning_rule !== undefined ? v.winning_rule : null,
+        policy_bundle_hash: v.policy_bundle_hash != null ? v.policy_bundle_hash : "none"
+      },
+      output_constraints: {
+        max_tokens: oc.max_tokens != null ? oc.max_tokens : 256,
+        must_not_claim_identity: oc.must_not_claim_identity !== undefined ? oc.must_not_claim_identity : true,
+        grounding_rules: oc.grounding_rules != null ? oc.grounding_rules : "cite memory by [ID:x]; no id if unsupported",
+        refusal_obligations: oc.refusal_obligations != null ? oc.refusal_obligations : "refuse harmful requests; never invent identity or facts"
+      },
+      safety_classification: options.safety_classification || "normal",
+      egress_boundary: options.egress_boundary || "none",
+      provenance_obligations: options.provenance_obligations != null ? options.provenance_obligations : "emit one signed DecisionRecord; hashes not raw text",
+      replay_metadata: options.replay_metadata || {}
+    };
+    return V.assertValid(V.schema("execution_contract"), c, "execution_contract");
+  }
+
+  var API = { buildIntent: buildIntent, buildPlan: buildPlan, buildGovernanceDecision: buildGovernanceDecision, buildResult: buildResult, buildFailure: buildFailure, buildExecutionContract: buildExecutionContract };
   if (typeof module !== "undefined" && module.exports) module.exports = API;
   else if (typeof window !== "undefined") window.AUBS_CAC_BUILDERS = API;
 })();

@@ -429,6 +429,13 @@ if(SPINE && SPINE.FLAGS){
     if(qp.get('gv2')==='1'||localStorage.getItem('aubs_gv2')==='1') SPINE.FLAGS.FLAG_SPINE_GROUNDING_V2=true;
     if(qp.get('gv2')==='0'){ SPINE.FLAGS.FLAG_SPINE_GROUNDING_V2=false; try{ localStorage.removeItem('aubs_gv2'); }catch(_){} }
     if(qp.get('gv2')==='1'){ try{ localStorage.setItem('aubs_gv2','1'); }catch(_){} }
+    // Slice 0 — Article 12 v2 (FLAG_IDENTITY_V2): app-declared identity + deterministic identity
+    // route in the constitutional path. Default OFF; enable per-session with ?identity=1. Flag-off
+    // = byte-identical (the model answers identity exactly as today). The OS default declares NO
+    // app identity (fallback = AUBS); an app may be selected for testing with ?app=splendor|lylo.
+    if(qp.get('identity')==='1'||localStorage.getItem('aubs_identity')==='1') SPINE.FLAGS.FLAG_IDENTITY_V2=true;
+    if(qp.get('identity')==='0'){ SPINE.FLAGS.FLAG_IDENTITY_V2=false; try{ localStorage.removeItem('aubs_identity'); }catch(_){} }
+    if(qp.get('identity')==='1'){ try{ localStorage.setItem('aubs_identity','1'); }catch(_){} }
   }catch(e){}
 }
 
@@ -465,6 +472,17 @@ try{
   if(qp.get('spine')==='1'){ try{ localStorage.setItem('aubs_spine','1'); }catch(_){} }
 }catch(e){}
 function constitutionChatOn(){ return !!(FLAG_CONSTITUTION_CHAT && typeof window!=="undefined" && window.AUBS_CONSTITUTION_CHAT && window.AUBS_CONSTITUTION_CHAT.runConstitutionalChat); }
+/* Slice 0 — which application's identity is declared this session. Default NONE (the OS does
+   not impersonate an app → AUBS fallback). Selectable for founder/device testing only with
+   ?app=splendor|lylo (persisted). Never changes the public default identity. */
+function appIdentity(){
+  try{
+    const qp=new URLSearchParams(location.search);
+    let a=qp.get('app'); if(a==='none'){ try{ localStorage.removeItem('aubs_app'); }catch(_){} return null; }
+    if(!a) a=localStorage.getItem('aubs_app'); else { try{ localStorage.setItem('aubs_app',a); }catch(_){} }
+    return (a && window.AUBS_CONSTITUTION_CHAT && window.AUBS_CONSTITUTION_CHAT.getAppIdentity) ? window.AUBS_CONSTITUTION_CHAT.getAppIdentity(a) : null;
+  }catch(e){ return null; }
+}
 
 /* ── Milestone 0 — Ledger wiring (additive, behind FLAG_LEDGER) ──────────────────
    When ON, every provenance record is ALSO appended to a real append-only, hash-chained,
@@ -1102,7 +1120,12 @@ async function runModelTurnThroughConstitution(text, sent, bubble, aiWrap, t0, r
     const c=await ensureLedger();                  // same IndexedDB ledger the verifier reads
     res=await window.AUBS_CONSTITUTION_CHAT.runConstitutionalChat({
       text, generate, model_id:(chosenModel||"local-model"),
-      ledgerStore:c?c.store:null, signingKey:(c&&c.keys)?c.keys.privateKey:null
+      ledgerStore:c?c.store:null, signingKey:(c&&c.keys)?c.keys.privateKey:null,
+      // Slice 0 — Article 12 v2 (default OFF). identityV2 reads FLAG_IDENTITY_V2; appIdentity is
+      // the OS-declared app (none by default → AUBS fallback; ?app=splendor|lylo for testing).
+      // The user persona name is style only — never the answer to "who are you".
+      appIdentity:appIdentity(), identityV2:!!(SPINE&&SPINE.FLAGS&&SPINE.FLAGS.FLAG_IDENTITY_V2),
+      userPersonaName:(S&&S.aiName)||null
       // bundle omitted → pipeline uses the default-allow-local bundle (local chat is allowed)
     });
   }catch(e){

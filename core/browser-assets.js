@@ -372,6 +372,143 @@
         "format": "date-time"
       }
     }
+  },
+  "execution_contract": {
+    "$id": "aubs/cac/execution_contract",
+    "title": "AUBS Execution Contract",
+    "description": "Per-turn governed envelope the kernel mints and hands to a provider. Distinct from the Provider Contract (the static adapter interface). A provider may only be invoked inside a valid Execution Contract; no contract = no provider call.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "contract_id",
+      "intent_id",
+      "app_identity",
+      "user_intent",
+      "allowed_provider",
+      "verdict",
+      "output_constraints",
+      "safety_classification",
+      "egress_boundary",
+      "provenance_obligations"
+    ],
+    "properties": {
+      "cac_version": {
+        "type": "string"
+      },
+      "contract_id": {
+        "type": "string"
+      },
+      "intent_id": {
+        "type": "string"
+      },
+      "app_identity": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "assistant_name",
+          "persona_ref",
+          "app_id"
+        ],
+        "properties": {
+          "assistant_name": {
+            "type": "string"
+          },
+          "persona_ref": {
+            "type": "string"
+          },
+          "app_id": {
+            "type": "string"
+          }
+        }
+      },
+      "user_intent": {
+        "type": "string"
+      },
+      "allowed_provider": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "allowed_tools": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "allowed_memory_scopes": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "verdict": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "decision",
+          "winning_rule",
+          "policy_bundle_hash"
+        ],
+        "properties": {
+          "decision": {
+            "enum": [
+              "allow",
+              "deny",
+              "modify",
+              "require_reauth"
+            ]
+          },
+          "winning_rule": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "policy_bundle_hash": {
+            "type": "string"
+          }
+        }
+      },
+      "output_constraints": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "max_tokens": {
+            "type": "integer"
+          },
+          "must_not_claim_identity": {
+            "type": "boolean"
+          },
+          "grounding_rules": {
+            "type": "string"
+          },
+          "refusal_obligations": {
+            "type": "string"
+          }
+        }
+      },
+      "safety_classification": {
+        "enum": [
+          "normal",
+          "harm_topic",
+          "self_harm"
+        ]
+      },
+      "egress_boundary": {
+        "enum": [
+          "none",
+          "redacted",
+          "full"
+        ]
+      },
+      "provenance_obligations": {
+        "type": "string"
+      },
+      "replay_metadata": {
+        "type": "object"
+      }
+    }
   }
 };
   window.AUBS_GEL_BUNDLE_SCHEMA = {
