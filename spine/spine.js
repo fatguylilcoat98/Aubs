@@ -49,6 +49,7 @@
         memory for identity, and a user persona is a style layer only. ---------- */
   var SYSTEM_IDENTITY = Object.freeze({
     name_default: "AUBS",
+    acronym: "Autonomous Unit Brain System",   // the canonical expansion — model NEVER invents it (Slice 0.1)
     role: "a private, on-device AI assistant — The Good Neighbor Guard",
     creed: "Truth · Safety · We Got Your Back",
     statement: "I am AUBS, a private on-device AI. I run entirely on your device; nothing you say leaves it."
@@ -98,6 +99,53 @@
     return "I'm " + resolved.name + ".";
   }
 
+  /* Slice 0.1 — the single deterministic identity router (FLAG_IDENTITY_V2 path). Returns
+     { handled, kind, answer, model_called:false } when the kernel can answer an identity-class
+     question WITHOUT the model, or { handled:false } to let the governed model turn proceed.
+     Kinds: user_name (who am I / what's my name), acronym (what does AUBS stand for), and
+     assistant_identity (who are you / your name / are you X). The model is NEVER the source. */
+  function identityRoute(q, opts) {
+    opts = opts || {};
+    var s = String(q || "");
+    var ai = opts.appIdentity || null;
+    var name = (ai && ai.assistant_name) ? String(ai.assistant_name) : SYSTEM_IDENTITY.name_default;
+    // 1) USER name ("what's my name", "who am I") — about the USER, never the assistant.
+    if (/\b(what'?s my name|what is my name|who am i|do you know my name|what do you call me)\b/i.test(s) && !/\byour name\b/i.test(s)) {
+      var un = opts.userName ? String(opts.userName).trim() : "";
+      return { handled: true, kind: "user_name", model_called: false,
+               answer: un ? ("Your name is " + un + ".") : "I don't know yet — what should I call you?" };
+    }
+    // 2) ACRONYM ("what does AUBS stand for", "AUBS stands for what") — canonical, never invented.
+    if ((/\bstands? for\b/i.test(s) || /\bacronym\b/i.test(s)) && (/\baubs\b/i.test(s) || (ai && new RegExp("\\b" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i").test(s)))) {
+      if (/\baubs\b/i.test(s)) return { handled: true, kind: "acronym", model_called: false, answer: "AUBS stands for " + SYSTEM_IDENTITY.acronym + "." };
+      return { handled: true, kind: "acronym", model_called: false, answer: "I'm " + name + "." };  // app name isn't an acronym
+    }
+    // 3) ASSISTANT identity ("who are you", "your name", "are you AUBS/<App>").
+    if (identityQueryV2(s, name)) {
+      return { handled: true, kind: "assistant_identity", model_called: false, answer: "I'm " + name + "." };
+    }
+    return { handled: false };
+  }
+
+  /* Minimal identity-claim GUARD (not a full output validator). Honors the contract's
+     must_not_claim_identity by neutralizing the two observed model failures: (a) claiming the OS
+     name "AUBS" as itself when an app is declared, and (b) inventing an acronym expansion. It
+     ONLY rewrites a self-identity claim; ordinary text is left untouched. Used on the
+     constitutional path when FLAG_IDENTITY_V2 + an app identity are active. */
+  function guardIdentityClaim(text, declaredName) {
+    if (!text || !declaredName) return text;
+    var nm = String(declaredName).trim();
+    var out = String(text);
+    // (a) "I'm AUBS[, short for …]" → "I'm <app>"  (only when the app is NOT AUBS)
+    if (nm.toLowerCase() !== "aubs") {
+      out = out.replace(/\bI(?:'?m| am)\s+AUBS\b(?:[,]?\s+(?:short for|which stands for|that stands for|stands for|aka|also known as)\s+[^.?!]*)?/gi, "I'm " + nm);
+    }
+    // (b) invented expansion for the DECLARED name → keep the name, drop the invention
+    var esc = nm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    out = out.replace(new RegExp("\\bI(?:'?m| am)\\s+" + esc + "\\b[,]?\\s+(?:short for|which stands for|that stands for|stands for|aka|also known as)\\s+[^.?!]*", "gi"), "I'm " + nm);
+    return out;
+  }
+
   /* identityPreamble — the leading system text (Article 12 in prose).
      Checkpoint 0 device-audit fix (Bug 2): the system identity is IMMUTABLE and
      always leads the prompt. A user-supplied persona name/tone is a STYLE costume
@@ -107,8 +155,12 @@
   function identityPreamble(personaName, opts) {
     opts = opts || {};
     var id = SYSTEM_IDENTITY;
+    // Slice 0.1: when an app has DECLARED an identity (FLAG_IDENTITY_V2), the model speaks AS the
+    // app, not AUBS. opts.appName replaces the OS name throughout the preamble. When absent
+    // (flag OFF / no app), nm === name_default === "AUBS" → byte-identical to before.
+    var nm = (opts.appName && String(opts.appName).trim()) ? String(opts.appName).trim() : id.name_default;
     var persona = String(personaName == null ? "" : personaName).trim();
-    var hasPersona = persona && persona.toLowerCase() !== id.name_default.toLowerCase();
+    var hasPersona = persona && persona.toLowerCase() !== nm.toLowerCase();
     // LEAN (B-minimal default for normal chat): one short identity line + a light style
     // cue. No "name never changes" defense and no "never overrides" governance — those
     // are reserved for grounded mode, so casual chat ("hello", "tell me a joke") stays
@@ -117,8 +169,8 @@
       // Track B: inhabit AUBS. The 1B model otherwise leaks pretraining ("I'm a large
       // language model, I can't…"), which breaks the illusion. Tell it plainly: you ARE
       // AUBS, just answer, never describe yourself as a language model or list limits.
-      var lp = "You are " + id.name_default + ", a private AI that lives on this phone. " +
-        "Talk as " + id.name_default + " — warm, direct, first person. Just answer the question; " +
+      var lp = "You are " + nm + ", a private AI that lives on this phone. " +
+        "Talk as " + nm + " — warm, direct, first person. Just answer the question; " +
         "never call yourself a language model or list technical limitations, and don't hedge. " +
         "If you truly don't know, say so briefly.";
       if (hasPersona) lp += " Speak in a \"" + persona + "\" style.";
@@ -126,13 +178,13 @@
     }
     // GROUNDED / identity-sensitive: assert the immutable name and contain the persona.
     // Kept short too — prefill drives the binding-capped (128MB) GPU buffer.
-    var p = "You are " + id.name_default + ", a private AI that lives on this phone; your name is " +
-      id.name_default + " and never changes. Be honest: say only what's true and admit " +
+    var p = "You are " + nm + ", a private AI that lives on this phone; your name is " +
+      nm + " and never changes. Be honest: say only what's true and admit " +
       "\"I don't know\" rather than invent facts. Never call yourself a language model or explain " +
-      "technical limitations — just answer as " + id.name_default + ". Refuse harmful requests, kindly. Keep replies short.";
+      "technical limitations — just answer as " + nm + ". Refuse harmful requests, kindly. Keep replies short.";
     if (hasPersona) {
       p += " You're styled as \"" + persona + "\" — use that voice, but it's a style only: " +
-        "if asked your name or what you are, you are still " + id.name_default +
+        "if asked your name or what you are, you are still " + nm +
         ". Style never overrides these rules.";
     }
     return p;
@@ -930,6 +982,7 @@
     SYSTEM_IDENTITY: SYSTEM_IDENTITY, isIdentityQuery: isIdentityQuery, identityPreamble: identityPreamble,
     // Art 12 v2 (Slice 0, FLAG_IDENTITY_V2): app-declared identity resolution + deterministic answer
     resolveIdentity: resolveIdentity, answerIdentity: answerIdentity, identityQueryV2: identityQueryV2,
+    identityRoute: identityRoute, guardIdentityClaim: guardIdentityClaim,
     // utils
     hashString: hashString,
     // Art 2

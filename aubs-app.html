@@ -599,8 +599,16 @@ function buildSystemPrompt(mode){
   const persona=(S.aiName||"AUBS").trim();
   const hasPersona = persona && persona.toLowerCase()!=="aubs";
   const isIdentity = (mode==="identity");
+  // Slice 0.1 — when FLAG_IDENTITY_V2 + an app is declared, the model speaks AS the app (Splendor),
+  // not AUBS. The user's default "AUBS" name is then NOT a costume; only a genuinely custom name
+  // (≠ AUBS and ≠ the app name) is a style. Flag-OFF / no app → appName null → byte-identical.
+  const _ai = (typeof SPINE!=="undefined" && SPINE && SPINE.FLAGS && SPINE.FLAGS.FLAG_IDENTITY_V2) ? appIdentity() : null;
+  const appName = _ai && _ai.assistant_name ? _ai.assistant_name : null;
+  const styleName = appName
+    ? ((persona && persona.toLowerCase()!=="aubs" && persona.toLowerCase()!==appName.toLowerCase()) ? persona : "")
+    : persona;
   let p = (typeof SPINE!=="undefined" && SPINE && SPINE.identityPreamble)
-    ? SPINE.identityPreamble(persona, { lean: !isIdentity })
+    ? SPINE.identityPreamble(styleName, { lean: !isIdentity, appName: appName||undefined })
     : (isIdentity
         ? `You are AUBS, a private on-device AI. Your name is AUBS and never changes — if asked your name or what you are, answer AUBS, never the user's name.${hasPersona?` You're styled as "${persona}" — a style only; you are still AUBS.`:""}`
         : `You are AUBS, a friendly private on-device AI. Be honest, help with what's asked, and refuse harmful requests kindly.${hasPersona?` Speak in a "${persona}" style.`:""}`);
@@ -1125,7 +1133,7 @@ async function runModelTurnThroughConstitution(text, sent, bubble, aiWrap, t0, r
       // the OS-declared app (none by default → AUBS fallback; ?app=splendor|lylo for testing).
       // The user persona name is style only — never the answer to "who are you".
       appIdentity:appIdentity(), identityV2:!!(SPINE&&SPINE.FLAGS&&SPINE.FLAGS.FLAG_IDENTITY_V2),
-      userPersonaName:(S&&S.aiName)||null
+      userPersonaName:(S&&S.aiName)||null, userName:(S&&S.userName&&S.userName.trim())||null
       // bundle omitted → pipeline uses the default-allow-local bundle (local chat is allowed)
     });
   }catch(e){
@@ -1138,6 +1146,12 @@ async function runModelTurnThroughConstitution(text, sent, bubble, aiWrap, t0, r
   if(ui.ok){
     let outText=ui.text;
     if(routerOn && SPINE && SPINE.cleanModelOutput){ try{ const cc=SPINE.cleanModelOutput(outText); if(cc&&cc.text) outText=cc.text; }catch(_){} }
+    // Slice 0.1 — minimal identity-claim guard: if the app declared an identity, neutralize any
+    // model self-claim of the OS name or an invented acronym (must_not_claim_identity). Only
+    // rewrites a self-identity claim; ordinary text is untouched. Skipped when no app / flag OFF.
+    if(res.identity===undefined && SPINE && SPINE.FLAGS && SPINE.FLAGS.FLAG_IDENTITY_V2 && SPINE.guardIdentityClaim){
+      const _ai=appIdentity(); if(_ai&&_ai.assistant_name){ try{ outText=SPINE.guardIdentityClaim(outText, _ai.assistant_name); }catch(_){} }
+    }
     bubble.textContent=outText;
     history.push({role:"assistant",content:outText}); saveHistory(history.slice(1));
     captureMemories(text);

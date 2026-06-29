@@ -98,6 +98,46 @@ function run(textIn, gen, over) {
     t("No app declared + flag ON: model still answers (no app identity to inject) — fallback path", g2.calls() === 1 && !s2.identity);
   }
 
+  // ════════ Slice 0.1 — prompt injection + minimal claim guard + acronym + user-name ════════
+  const SPINE = require("../spine/spine.js");
+  // Acceptance 1 & 2 (reaffirmed end-to-end): who are you / what's your name → "I'm Splendor.", 0×
+  {
+    const g1 = spyGen(); const s1 = await run("who are you?", g1, { appIdentity: SPLENDOR, identityV2: true, ledgerStore: L.createMemoryStore(), signingKey: key.privateKey });
+    const g2 = spyGen(); const s2 = await run("what's your name?", g2, { appIdentity: SPLENDOR, identityV2: true, ledgerStore: L.createMemoryStore(), signingKey: key.privateKey });
+    t("0.1 acc#1 'who are you?' → \"I'm Splendor.\", model 0×", s1.ui.text === "I'm Splendor." && g1.calls() === 0);
+    t("0.1 acc#2 'what's your name?' → \"I'm Splendor.\", model 0×", s2.ui.text === "I'm Splendor." && g2.calls() === 0);
+  }
+  // Acceptance 3: what's my name? → NOT assistant identity; no stored name → honest deterministic
+  {
+    const g = spyGen(); const s = await run("what's my name?", g, { appIdentity: SPLENDOR, identityV2: true, ledgerStore: L.createMemoryStore(), signingKey: key.privateKey });
+    t("0.1 acc#3 'what's my name?' (none stored) → \"I don't know yet — what should I call you?\", model 0×", s.ui.text === "I don't know yet — what should I call you?" && g.calls() === 0 && s.record.explanation.identity_kind === "user_name");
+    t("0.1 acc#3 NOT the assistant identity (never 'I'm Splendor'/'I'm AUBS')", !/I'm (Splendor|AUBS)\b/.test(s.ui.text));
+    const g2 = spyGen(); const s2 = await run("what's my name?", g2, { appIdentity: SPLENDOR, identityV2: true, userName: "Chris", ledgerStore: L.createMemoryStore(), signingKey: key.privateKey });
+    t("0.1 acc#3 with a stored name → \"Your name is Chris.\", model 0×", s2.ui.text === "Your name is Chris." && g2.calls() === 0);
+  }
+  // Acceptance 4: normal turn — prompt injects Splendor (not AUBS); guard neutralizes a false claim
+  {
+    const leanSpl = SPINE.identityPreamble("", { lean: true, appName: "Splendor" });
+    const leanOff = SPINE.identityPreamble("AUBS", { lean: true });   // flag-OFF path
+    t("0.1 acc#4 prompt injection: model is told it is Splendor, not AUBS", /\bSplendor\b/.test(leanSpl) && !/\bAUBS\b/.test(leanSpl));
+    t("0.1 acc#4 prompt flag-OFF byte-identical (still AUBS)", /You are AUBS/.test(leanOff));
+    t("0.1 acc#4 guard: model claiming 'I'm AUBS, short for …' → 'I'm Splendor.'", SPINE.guardIdentityClaim("I'm AUBS, short for Always Under the Sun.", "Splendor") === "I'm Splendor.");
+    t("0.1 acc#4 guard: invented expansion for the app name is dropped", SPINE.guardIdentityClaim("I am Splendor, short for Super Pleasant.", "Splendor") === "I'm Splendor.");
+    t("0.1 acc#4 guard: ordinary text + correct claim untouched (no false positives)", SPINE.guardIdentityClaim("Hello! How can I help?", "Splendor") === "Hello! How can I help?" && SPINE.guardIdentityClaim("Hi, I'm Splendor!", "Splendor") === "Hi, I'm Splendor!" && SPINE.guardIdentityClaim("Nice to meet you, Chris.", "Splendor") === "Nice to meet you, Chris.");
+  }
+  // Acceptance 5: AUBS stands for what? → canonical, no invention, model 0×
+  {
+    const g = spyGen("AUBS stands for Advanced User Behavior System."); // model tries to invent
+    const s = await run("AUBS stands for what?", g, { appIdentity: SPLENDOR, identityV2: true, ledgerStore: L.createMemoryStore(), signingKey: key.privateKey });
+    t("0.1 acc#5 'AUBS stands for what?' → \"Autonomous Unit Brain System.\", model 0×, no invention", s.ui.text === "AUBS stands for Autonomous Unit Brain System." && g.calls() === 0);
+  }
+  // Flag-OFF byte-identical for the NEW routes: model still answers (no deterministic hijack)
+  {
+    const g1 = spyGen("your name is whatever"); const s1 = await run("what's my name?", g1, { appIdentity: SPLENDOR, identityV2: false, ledgerStore: L.createMemoryStore(), signingKey: key.privateKey });
+    const g2 = spyGen("AUBS stands for something"); const s2 = await run("AUBS stands for what?", g2, { appIdentity: SPLENDOR, identityV2: false, ledgerStore: L.createMemoryStore(), signingKey: key.privateKey });
+    t("0.1 flag-OFF: user-name + acronym go to the MODEL (no deterministic route)", g1.calls() === 1 && g2.calls() === 1 && !s1.identity && !s2.identity);
+  }
+
   // ── Execution Contract is distinct from the Provider Contract (schema sanity) ───────────
   t("Execution Contract validates against its CAC schema; missing fields fail closed", CAC.validate.validateExecutionContract({ contract_id: "x" }).valid === false);
 

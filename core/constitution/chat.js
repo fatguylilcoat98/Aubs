@@ -94,6 +94,7 @@
       appIdentity: opts.appIdentity || null,
       identityV2: opts.identityV2,
       userPersonaName: opts.userPersonaName || null,
+      userName: opts.userName || null,
       intent_id: opts.intent_id, plan_id: opts.plan_id, created_at: opts.created_at, source: opts.source || "user"
     })).then(function (state) {
       state.ui = uiView(state);
