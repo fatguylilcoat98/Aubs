@@ -1,0 +1,130 @@
+/* ============================================================================
+   AUBS Constitutional Chat Path — the One Spine for live local chat (Milestone 14)
+   Truth · Safety · We Got Your Back
+
+   The thin glue that lets the REAL on-device chat turn run through the full constitutional
+   pipeline (runConstitutionalRequest) instead of the standalone M4 kernel bridge. It adds
+   NO new behaviour and NO new model: the app injects the one WebLLM completion it already
+   has, and this module wraps it as a governed `local-webllm` PROVIDER plus a built-in
+   `local_chat` SKILL, then drives one request:
+
+     Intent → Plan (planner) → GEL → Provider Eligibility → Provider (drift shield) →
+     Grounding → DecisionRecord → Ledger → Replay evidence → Level 1 explanation.
+
+   Inert by construction: nothing here runs unless the app calls runConstitutionalChat,
+   which only happens behind FLAG_CONSTITUTION_CHAT (?spine=1). With the flag off the app
+   behaves exactly as before. It NEVER loads a model and NEVER creates a second engine.
+   ========================================================================== */
+(function () {
+  "use strict";
+  var isNode = (typeof require !== "undefined");
+  var PROV     = isNode ? require("../providers")        : (typeof window !== "undefined" ? window.AUBS_PROVIDERS : null);
+  var SKILLREG = isNode ? require("../skills/registry")  : (typeof window !== "undefined" ? window.AUBS_SKILL_REGISTRY : null);
+  var PIPE     = isNode ? require("./pipeline")          : (typeof window !== "undefined" ? window.AUBS_CONSTITUTION_PIPELINE : null);
+
+  // The on-device chat skill: a low-risk, fully-local capability that DECLARES exactly one
+  // provider (the local model) and nothing else — no tools, no network, no memory scopes.
+  // The pipeline executes via the provider; execute() is a required-but-unused passthrough
+  // (skills declare/request resources, they never run them — only the kernel executes).
+  function makeLocalChatSkill() {
+    return {
+      skill_id: "local_chat", name: "Local Chat", version: "1.0.0",
+      description: "Answer the user on-device using the local model. Nothing leaves the device.",
+      inputs: ["message"], outputs: ["answer"],
+      required_permissions: [], allowed_tools: [], allowed_providers: ["local-webllm"],
+      allowed_memory_scopes: [], requires_network: false, requires_user_confirmation: false,
+      risk_level: "low", supported_operations: ["chat"], enabled: true, metadata: { builtin: true },
+      execute: function () { return Promise.resolve({ status: "success", output_text: "", output_classification: "none" }); }
+    };
+  }
+
+  // Wrap the injected completion as a governed local provider. generate(ctx) → { text, finish }
+  // (may throw). The provider returns the normalized adapter shape the Drift Shield validates;
+  // a throw or empty output becomes an explicit, honest failure — never invented text.
+  function makeLocalProvider(generate, model_id) {
+    var adapter = {
+      id: "local-webllm",
+      run: function (plan, ctx) {
+        return Promise.resolve()
+          .then(function () { return generate(ctx); })
+          .then(function (out) {
+            var text = (out && typeof out.text === "string") ? out.text : "";
+            if (!text) return { ok: false, failure_type: "model_error", message: "the on-device model returned no text", recoverable: true };
+            return { ok: true, output_text: text, model_id: model_id || "local-model", provider_id: "local-webllm" };
+          })
+          .catch(function (e) { return { ok: false, failure_type: "model_error", message: (e && e.message) ? e.message : String(e), recoverable: true }; });
+      }
+    };
+    return PROV.adapterToProvider(adapter, { provider_id: "local-webllm", provider_type: "local", capabilities: PROV.defaultLocalCapabilities() });
+  }
+
+  // Assemble the governed environment for a chat turn: a provider registry holding the local
+  // model, and a skill registry holding the built-in local_chat skill (validated against that
+  // provider registry, so an undeclared/unknown provider could never slip in). Pure setup.
+  function buildChatEnv(opts) {
+    opts = opts || {};
+    var providerRegistry = PROV.createRegistry();
+    providerRegistry.register(makeLocalProvider(opts.generate, opts.model_id));
+    var skillRegistry = SKILLREG.createSkillRegistry({ providerRegistry: providerRegistry });
+    var reg = skillRegistry.registerSkill(makeLocalChatSkill());
+    return { providerRegistry: providerRegistry, skillRegistry: skillRegistry, skillRegistered: reg };
+  }
+
+  // Drive ONE constitutional chat turn. Returns the pipeline state plus a UI view derived
+  // purely from recorded state — text to show, whether it was blocked, the honest explanation.
+  function runConstitutionalChat(opts) {
+    opts = opts || {};
+    var env = buildChatEnv(opts);
+    var request = {
+      user_text: opts.text || "",
+      skill_id: "local_chat", operation: "chat",
+      // local-only / no-egress: this turn must never leave the device.
+      constraints: opts.constraints || { max_egress: "none", local_only: true, data_classification: "personal" }
+    };
+    return Promise.resolve(PIPE.runConstitutionalRequest(request, {
+      skillRegistry: env.skillRegistry,
+      providerRegistry: env.providerRegistry,
+      bundle: opts.bundle || null,
+      ctx: opts.ctx || {},
+      ledgerStore: opts.ledgerStore || null,
+      signingKey: opts.signingKey || null,
+      intent_id: opts.intent_id, plan_id: opts.plan_id, created_at: opts.created_at, source: opts.source || "user"
+    })).then(function (state) {
+      state.ui = uiView(state);
+      return state;
+    });
+  }
+
+  // Honest, model-free message when a turn is blocked by governance/eligibility/etc.
+  function blockedMessage(state) {
+    var decision = state.governance ? state.governance.decision : "deny";
+    if (decision === "require_reauth") return "You'll need to re-authenticate before I can run that.";
+    return "I can't run that under your current policy.";
+  }
+
+  // Map recorded pipeline state → exactly what the chat UI needs. NEVER invents text:
+  // success shows the model's output verbatim; blocked/failed show an honest, fixed message.
+  function uiView(state) {
+    var blocked = state.status === "blocked";
+    var ok = state.status === "ok";
+    var text;
+    if (ok) text = state.output_text || "";
+    else if (blocked) text = blockedMessage(state);
+    else text = "Something went wrong before I could answer. Nothing left this device.";
+    return {
+      ok: ok, blocked: blocked, text: text,
+      explanation: state.explanation || "",
+      grounding: state.grounding ? state.grounding.tag : null,
+      record_id: state.record ? state.record.id : null,
+      record_seq: state.record ? state.record.seq : null,
+      execution_type: state.record ? state.record.execution_type : null
+    };
+  }
+
+  var API = {
+    makeLocalChatSkill: makeLocalChatSkill, makeLocalProvider: makeLocalProvider,
+    buildChatEnv: buildChatEnv, runConstitutionalChat: runConstitutionalChat, uiView: uiView
+  };
+  if (typeof module !== "undefined" && module.exports) module.exports = API;
+  else if (typeof window !== "undefined") window.AUBS_CONSTITUTION_CHAT = API;
+})();
