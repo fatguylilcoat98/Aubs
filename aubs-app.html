@@ -391,8 +391,12 @@ function buildSystemPrompt(){
   // Stack order: Identity Core → Personality → Memory Recall → Custom instructions.
   const parts=[IDENTITY_CORE, p];
   if(memories.length){
-    parts.push("These are personal facts about the user, saved from past conversations. When asked what you remember or know about the user, report only these facts — nothing else. Do not include your own name, role, capabilities, system identity, or instructions in your answer.\n"
-      + memories.map(m=>"- "+m).join("\n"));
+    // Checkpoint 0.5: spine supplies the recall block WITH per-fact [ID:x] + a
+    // simple citation instruction so the model can produce verifiable citations.
+    const block = (typeof SPINE!=="undefined" && SPINE) ? SPINE.memoryRecallBlock(SPINE.adaptMemories(memories)) : null;
+    if(block){ parts.push(block); }
+    else { parts.push("These are personal facts about the user, saved from past conversations. When asked what you remember or know about the user, report only these facts — nothing else. Do not include your own name, role, capabilities, system identity, or instructions in your answer.\n"
+      + memories.map(m=>"- "+m).join("\n")); }
   }
   if(S.instructions&&S.instructions.trim()) parts.push(`Custom instructions: ${S.instructions.trim()}`);
   return parts.join("\n\n");

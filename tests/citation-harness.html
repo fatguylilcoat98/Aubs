@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AUBS Citation Reliability Harness — Checkpoint 0.5</title>
+<!-- Loads the REAL spine so scoring matches the app exactly. -->
+<script src="../spine/spine.js"></script>
+<!-- Phone-over-LAN-HTTP fix: the Cache API (`caches`) only exists in a secure
+     context (https or localhost). Opening this page at http://<LAN-IP> makes
+     `caches` undefined. WebLLM is configured below to use IndexedDB instead
+     (cacheBackend:"indexeddb"), which works over plain HTTP. As a safety net
+     we also provide a FUNCTIONAL in-memory `caches` so that if any residual
+     Cache API call happens it still fetches real bytes — a no-op shim would
+     silently swallow the download (this was the cause of the config.json error). -->
+<script>
+  if (typeof window !== "undefined" && typeof window.caches === "undefined") {
+    var _mem = new Map();
+    var _key = function(req){ return (typeof req === "string") ? req : req.url; };
+    var _cache = {
+      match: function(req){ var r = _mem.get(_key(req)); return Promise.resolve(r ? r.clone() : undefined); },
+      add: function(req){ return fetch(req).then(function(resp){ if (resp && resp.ok) _mem.set(_key(req), resp.clone()); }); },
+      addAll: function(reqs){ return Promise.all((reqs || []).map(function(r){ return _cache.add(r); })).then(function(){}); },
+      put: function(req, resp){ _mem.set(_key(req), resp.clone()); return Promise.resolve(); },
+      "delete": function(req){ return Promise.resolve(_mem.delete(_key(req))); },
+      keys: function(){ return Promise.resolve(Array.from(_mem.keys()).map(function(u){ return new Request(u); })); }
+    };
+    window.caches = {
+      open: function(){ return Promise.resolve(_cache); },
+      match: function(req){ return _cache.match(req); },
+      has: function(){ return Promise.resolve(true); },
+      keys: function(){ return Promise.resolve(["aubs-mem"]); },
+      "delete": function(){ return Promise.resolve(false); }
+    };
+  }
+</script>
+<style>
+  body{font:14px/1.55 system-ui,sans-serif;margin:18px;color:#0d1124;background:#f4f6fc}
+  h1{font-size:19px;margin:0 0 4px}
+  .meta{color:#5a6080;margin-bottom:12px}
+  .panel{background:#fff;border:1px solid #e1e5f0;border-radius:10px;padding:14px 16px;margin-bottom:14px}
+  .panel h2{font-size:14px;margin:0 0 8px}
+  ol{margin:6px 0 0 18px;padding:0}
+  ol li{margin:2px 0}
+  .controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  label{font-weight:600}
+  select,button,input{font:inherit;padding:8px 12px;border-radius:8px;border:1px solid #c3c9dd;background:#fff}
+  input[type=number]{width:72px}
+  button{cursor:pointer;background:#2B8CFF;color:#fff;border:0}
+  button.secondary{background:#fff;color:#2B8CFF;border:1px solid #2B8CFF}
+  button:disabled{opacity:.5;cursor:default}
+  #status{margin:10px 0;color:#2B8CFF;min-height:20px}
+  table{border-collapse:collapse;width:100%;background:#fff;font-size:12.5px}
+  th,td{border:1px solid #e1e5f0;padding:6px 8px;vertical-align:top;text-align:left}
+  th{background:#eef2fb;position:sticky;top:0}
+  td.ans{max-width:360px;white-space:pre-wrap}
+  .tag-grounded{color:#0a7d2c;font-weight:600}
+  .tag-inferred{color:#7c3aed}
+  .tag-general{color:#5a6080}
+  .tag-unknown,.tag-timeout,.tag-error{color:#c2410c}
+  .out-cited_correct,.out-correct_no_citation{color:#0a7d2c}
+  .out-omitted,.out-cited_nonexistent,.out-cited_wrong_in_prompt,.out-cited_when_none_expected,.out-timeout,.out-error{color:#c2410c}
+  #summary{margin-top:14px}
+  #summary table{max-width:520px}
+  #report{width:100%;height:200px;margin-top:10px;font:12px/1.4 ui-monospace,Menlo,monospace;display:none}
+</style>
+</head>
+<body>
+<h1>AUBS Citation Reliability Harness</h1>
+<div class="meta">Checkpoint 0.5 evidence-gathering · spine <span id="ver">?</span> · flags <span id="flags">?</span> · this is a TEST tool, not the app.</div>
+
+<div class="panel">
+  <h2>How to run (for Chris)</h2>
+  <ol>
+    <li>You're already here, so the page loaded — good.</li>
+    <li>Pick a <b>Model</b> below (start with <i>Fast — Llama 3.2 1B</i>). First run downloads the model once.</li>
+    <li>Press <b>Run all scenarios</b>. Each row fills in with the model's answer, the IDs it cited, the outcome, and the tag.</li>
+    <li>When it says <b>Done</b>, press <b>Copy results</b> (or <b>Download .md</b>) and paste them back to me.</li>
+    <li>Optional: change the <b>Model</b> and run again to compare. Adjust <b>Timeout</b> if a slow device stalls a row.</li>
+  </ol>
+</div>
+
+<div class="panel">
+  <div class="controls">
+    <label>Model:
+      <select id="model">
+        <option value="Llama-3.2-1B-Instruct-q4f16_1-MLC">Fast — Llama 3.2 1B (f16, recommended)</option>
+        <option value="Qwen2.5-0.5B-Instruct-q4f16_1-MLC">Tiny — Qwen2.5 0.5B (f16)</option>
+        <option value="Llama-3.2-1B-Instruct-q4f32_1-MLC">Llama 3.2 1B (f32 — heavier)</option>
+        <option value="Llama-3.2-3B-Instruct-q4f16_1-MLC">Smart — Llama 3.2 3B (f16)</option>
+      </select>
+    </label>
+    <label>Timeout: <input id="timeout" type="number" min="5" max="600" value="60" /> s</label>
+    <button id="run">Run all scenarios</button>
+    <button id="copy" class="secondary" disabled>Copy results</button>
+    <button id="download" class="secondary" disabled>Download .md</button>
+  </div>
+  <div id="status">Loading scenarios…</div>
+</div>
+
+<table id="results">
+  <thead><tr>
+    <th>#</th><th>Scenario</th><th>Prompt</th><th>Expected ID</th><th>Model answer</th><th>IDs cited</th><th>Outcome</th><th>Tag</th>
+  </tr></thead>
+  <tbody></tbody>
+</table>
+<div id="summary"></div>
+<textarea id="report" readonly></textarea>
+
+<script type="module">
+import * as webllm from "https://esm.run/@mlc-ai/web-llm@0.2.84";
+const SPINE = window.AUBS_SPINE;
+const H = window.H = { engine:null, results:[], report:"" };   // engine settable for offline test injection
+document.getElementById('ver').textContent = SPINE.SPINE_VERSION;
+document.getElementById('flags').textContent = SPINE.activeFlags().join(',') || 'none';
+
+let SCEN = [], GS_VERSION = "";
+const status = (m)=>{ document.getElementById('status').textContent = m; };
+fetch('./golden-set.citations.v1.json').then(r=>r.json())
+  .then(j=>{ SCEN = j.scenarios; GS_VERSION = j.version; status('Loaded '+SCEN.length+' scenarios ('+j.version+'). Pick a model and press Run.'); })
+  .catch(e=>status('Could not load scenarios: '+e.message));
+
+function esc(s){ return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+// WebGPU (and the Cache API) require a SECURE CONTEXT — https or localhost.
+// Opening this page by LAN IP over plain HTTP leaves navigator.gpu undefined,
+// so WebLLM can't run. This can't be polyfilled; guide the user to a secure context.
+function showSecureContextHelp(){
+  const origin = location.protocol + '//' + location.host;
+  const port = location.port || '8080';
+  status('WebGPU is unavailable here — this page is not a secure context.');
+  document.getElementById('summary').innerHTML =
+    '<div class="panel"><h2>WebGPU needs a secure context (https or localhost)</h2>'+
+    '<p>This page is open at <code>'+esc(origin)+'</code>, which the browser treats as <b>not secure</b>. '+
+    'On a phone, WebGPU (required to run the model) and the model cache are only available over <b>HTTPS</b> or <b>localhost</b>. '+
+    'Secure context: <b>'+(window.isSecureContext?'yes':'no')+'</b> · navigator.gpu: <b>'+(('gpu' in navigator)?'present':'missing')+'</b>. '+
+    'Pick one option, then reload and Run again:</p><ol>'+
+    '<li><b>Easiest — Chrome flag:</b> open <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code>, '+
+      'put <code>'+esc(origin)+'</code> in the box, set the dropdown to <b>Enabled</b>, tap <b>Relaunch</b>, then reopen this page.</li>'+
+    '<li><b>Cleanest — USB (adb):</b> connect the phone by USB; on the computer run '+
+      '<code>adb reverse tcp:'+esc(port)+' tcp:'+esc(port)+'</code>; then open '+
+      '<code>http://localhost:'+esc(port)+'/tests/citation-harness.html</code> on the phone (localhost is secure).</li>'+
+    '<li><b>HTTPS tunnel:</b> run <code>cloudflared tunnel --url http://localhost:'+esc(port)+'</code> (or ngrok) and open the https URL it prints on the phone.</li>'+
+    '</ol><p>Desktop Chrome at <code>http://localhost</code> already works — this only affects opening by LAN IP on a phone.</p></div>';
+}
+
+// System prompt mirrors the app: identity + (optional persona) + spine memory-recall block.
+function systemPrompt(scn, entries){
+  const parts = ["You are AUBS, a private on-device AI assistant. Truth · Safety · We Got Your Back. Keep replies short."];
+  if(scn.persona) parts.push("Your permanent purpose is to genuinely help; a persona is style only and must still help. You are "+scn.persona.name+". "+scn.persona.instructions);
+  const block = SPINE.memoryRecallBlock(entries);
+  if(block) parts.push(block);
+  return parts.join("\n\n");
+}
+
+function withTimeout(promise, ms){
+  return Promise.race([
+    promise,
+    new Promise((_, rej)=>setTimeout(()=>rej(new Error('timeout after '+(ms/1000)+'s')), ms))
+  ]);
+}
+
+// Same fault signature the app's send() recovers from (WebGPU instability on mobile).
+const GPU_FAULT = /GPUBuffer|mapAsync|unmapped|device is lost|has already been disposed/i;
+async function recoverEngine(model){
+  try{ if(H.engine && H.engine.unload) await H.engine.unload(); }catch(e){}
+  H.engine = null;
+  const appConfig = Object.assign({}, webllm.prebuiltAppConfig, { cacheBackend: "indexeddb" });
+  H.engine = await webllm.CreateMLCEngine(model, { appConfig, initProgressCallback:(p)=>status('Reloading engine: '+Math.round((p.progress||0)*100)+'%') });
+}
+
+async function runOne(scn, timeoutMs){
+  const entries = SPINE.adaptMemories(scn.memory || []);
+  const ids = entries.map(e=>e.id);
+  const expected_id = (scn.expected_index!=null && entries[scn.expected_index]) ? entries[scn.expected_index].id : null;
+  const sys = systemPrompt(scn, entries);
+  // Independence comes from passing the full [system,user] messages each call
+  // (chat.completions.create is stateless when given messages). We deliberately do
+  // NOT call resetChat() between scenarios: on this WebLLM/Android build a
+  // resetChat() right before create() left the engine half-reset and produced
+  // EMPTY output (and fed the GPU-buffer instability). The shipping app never
+  // resets in normal flow and generates fine, so we mirror it exactly:
+  // streaming + accumulate, temp 0.7.
+  const answer = await withTimeout((async()=>{
+    let full = "";
+    const chunks = await H.engine.chat.completions.create({
+      messages:[{role:'system',content:sys},{role:'user',content:scn.prompt}],
+      stream:true, temperature:0.7, max_tokens:256
+    });
+    for await (const c of chunks){ full += (c.choices && c.choices[0] && c.choices[0].delta && c.choices[0].delta.content) || ""; }
+    return full;
+  })(), timeoutMs);
+  const cited = SPINE.parseCitations(answer);                // strict [ID:x] (what the spine grounds on)
+  // Format diagnostic ONLY (does not affect grounding): did the model write a real
+  // memory id in BARE brackets [m_x] instead of the required [ID:m_x] form?
+  const idSet = {}; ids.forEach(function(i){ idSet[i]=true; });
+  const bare = []; const bareRe = /\[(m_[A-Za-z0-9]+)\]/g; let bm;
+  while((bm = bareRe.exec(answer)) !== null){ if(idSet[bm[1]] && bare.indexOf(bm[1])<0) bare.push(bm[1]); }
+  const formatMiss = (cited.length === 0 && bare.length > 0);  // cited an id, but wrong format
+  const classification = SPINE.classify(scn.prompt);
+  const outcome = SPINE.classifyCitation({ answer, memory_ids_in_prompt:ids, entries, expected_id });
+  let r = SPINE.tagAnswer({ answer, memory_ids_in_prompt:ids, entries, classification, conflict: scn.conflict===true });
+  let tag = r.tag; if(!SPINE.dangerFactCheck(answer).ok) tag='unknown';
+  return { id:scn.id, name:scn.name, prompt:scn.prompt, expected: expected_id||'(none)', expect_citation: !!scn.expect_citation, answer, cited: cited.join(', ')||'(none)', bare: bare.join(', '), formatMiss, outcome, tag };
+}
+
+function summarize(model){
+  const t = {}, tags = { grounded:0, inferred:0, general:0, unknown:0 };
+  let timeouts=0, errors=0;
+  let formatMisses=0;
+  for(const r of H.results){
+    t[r.outcome] = (t[r.outcome]||0)+1;
+    if(tags[r.tag]!==undefined) tags[r.tag]++;
+    if(r.outcome==='timeout') timeouts++;
+    if(r.outcome==='error') errors++;
+    if(r.formatMiss) formatMisses++;
+  }
+  const total = H.results.length;
+  const expectedCases = SCEN.filter(s=>s.expect_citation).length;
+  const correct = t['cited_correct']||0;
+  return {
+    model, total, expectedCases,
+    correct,
+    wrong: t['cited_wrong_in_prompt']||0,
+    missing: t['omitted']||0,
+    nonexistent: t['cited_nonexistent']||0,
+    cited_when_none_expected: t['cited_when_none_expected']||0,
+    correct_no_citation: t['correct_no_citation']||0,
+    formatMisses,
+    timeouts, errors, tags
+  };
+}
+
+function buildReport(s){
+  const L = [];
+  L.push("AUBS Citation Reliability — Checkpoint 0.5");
+  L.push("Model: "+s.model);
+  L.push("Spine: "+SPINE.SPINE_VERSION+"  ·  Flags: "+(SPINE.activeFlags().join(',')||'none')+"  ·  Set: "+GS_VERSION);
+  L.push("");
+  L.push("| # | Scenario | Prompt | Expected ID | IDs cited | Outcome | Tag | Answer |");
+  L.push("|---|----------|--------|-------------|-----------|---------|-----|--------|");
+  for(const r of H.results){
+    const ans = ((r.answer===''||r.answer==null) ? '(empty response)' : String(r.answer)).replace(/\s*\n\s*/g, ' ').slice(0,300);
+    const note = r.formatMiss ? (' [wrong format: ['+r.bare+'] not [ID:…]]') : '';
+    L.push("| "+r.id+" | "+r.name+" | "+r.prompt+" | "+r.expected+" | "+r.cited+" | "+r.outcome+note+" | "+r.tag+" | "+ans+" |");
+  }
+  L.push("");
+  L.push("Summary");
+  L.push("- Total scenarios: "+s.total);
+  L.push("- Correct citations (cited_correct): "+s.correct+" / "+s.expectedCases+" citation-expected");
+  L.push("- Wrong citations (cited_wrong_in_prompt): "+s.wrong);
+  L.push("- Missing citations (omitted): "+s.missing);
+  L.push("- Nonexistent citations (cited_nonexistent): "+s.nonexistent);
+  L.push("- Cited when none expected: "+s.cited_when_none_expected);
+  L.push("- Correct no-citation: "+s.correct_no_citation);
+  L.push("- Citation FORMAT misses (wrote [m_x] not [ID:m_x]): "+s.formatMisses);
+  L.push("- Timeouts: "+s.timeouts+"  ·  Errors: "+s.errors);
+  L.push("- Tags: grounded "+s.tags.grounded+" · inferred "+s.tags.inferred+" · general "+s.tags.general+" · unknown "+s.tags.unknown);
+  return L.join("\n");
+}
+
+window.runAll = async function(){
+  const btn = document.getElementById('run'); btn.disabled = true;
+  document.getElementById('copy').disabled = true; document.getElementById('download').disabled = true;
+  try{
+    const model = document.getElementById('model').value;
+    const timeoutMs = Math.max(5, Number(document.getElementById('timeout').value)||60) * 1000;
+    if(!H.engine){
+      if(typeof navigator==='undefined' || !navigator.gpu){ showSecureContextHelp(); return; }
+      status('Loading '+model+' … (first run downloads the model)');
+      // Use IndexedDB for model caching so this works over plain HTTP on a phone
+      // (the Cache API is unavailable in non-secure contexts). In web-llm 0.2.84
+      // the field is `cacheBackend` ("indexeddb"), NOT `useIndexedDBCache`.
+      const appConfig = Object.assign({}, webllm.prebuiltAppConfig, { cacheBackend: "indexeddb" });
+      H.engine = await webllm.CreateMLCEngine(model, { appConfig, initProgressCallback:(p)=>status('Loading: '+Math.round((p.progress||0)*100)+'% '+(p.text||'')) });
+    }
+    status('Running '+SCEN.length+' scenarios (timeout '+(timeoutMs/1000)+'s each)…');
+    const tbody = document.querySelector('#results tbody'); tbody.innerHTML=''; H.results=[];
+    let recoveries = 0;
+    for(const scn of SCEN){
+      let row;
+      try{ row = await runOne(scn, timeoutMs); }
+      catch(e){
+        const msg = e && e.message ? e.message : String(e);
+        const isTimeout = /timeout/i.test(msg);
+        row = { id:scn.id, name:scn.name, prompt:scn.prompt, expected:'', answer:(isTimeout?'(timed out)':'ERROR: '+msg), cited:'(none)', outcome:(isTimeout?'timeout':'error'), tag:(isTimeout?'timeout':'error') };
+        // Mirror the app: on a GPU buffer fault / disposed engine, reload the engine
+        // so the remaining scenarios don't cascade-fail.
+        if(!isTimeout && GPU_FAULT.test(msg) && recoveries < 5){
+          recoveries++;
+          status('GPU engine fault on '+scn.id+' — reloading the engine ('+recoveries+')…');
+          try{ await recoverEngine(model); }catch(re){ status('Engine reload failed: '+(re.message||re)); }
+        }
+      }
+      H.results.push(row);
+      const shownAnswer = (row.answer===''||row.answer==null) ? '(empty response)' : row.answer;
+      const outNote = row.formatMiss ? ' <span style="color:#c2410c">· wrong format ['+esc(row.bare)+']</span>' : '';
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td>'+row.id+'</td><td>'+esc(row.name)+'</td><td>'+esc(row.prompt)+'</td><td>'+esc(row.expected)+
+        '</td><td class="ans">'+esc(shownAnswer)+'</td><td>'+esc(row.cited)+'</td>'+
+        '<td class="out-'+row.outcome+'">'+row.outcome+outNote+'</td><td class="tag-'+row.tag+'">'+row.tag+'</td>';
+      tbody.appendChild(tr);
+      await new Promise(r=>setTimeout(r, 800));   // let the GPU settle between scenarios (reduces mapAsync faults)
+    }
+    const s = summarize(model);
+    H.report = buildReport(s);
+    document.getElementById('summary').innerHTML =
+      '<h3>Summary</h3><table>'+
+      '<tr><td>Total scenarios</td><td><b>'+s.total+'</b></td></tr>'+
+      '<tr><td>Correct citations</td><td><b>'+s.correct+'</b> / '+s.expectedCases+' citation-expected</td></tr>'+
+      '<tr><td>Wrong citations</td><td>'+s.wrong+'</td></tr>'+
+      '<tr><td>Missing citations</td><td>'+s.missing+'</td></tr>'+
+      '<tr><td>Nonexistent citations</td><td>'+s.nonexistent+'</td></tr>'+
+      '<tr><td>Cited when none expected</td><td>'+s.cited_when_none_expected+'</td></tr>'+
+      '<tr><td>Correct no-citation</td><td>'+s.correct_no_citation+'</td></tr>'+
+      '<tr><td>Citation format misses ([m_x] not [ID:m_x])</td><td>'+s.formatMisses+'</td></tr>'+
+      '<tr><td>Timeouts / Errors</td><td>'+s.timeouts+' / '+s.errors+'</td></tr>'+
+      '<tr><td>Tags</td><td>grounded '+s.tags.grounded+' · inferred '+s.tags.inferred+' · general '+s.tags.general+' · unknown '+s.tags.unknown+'</td></tr>'+
+      '</table>';
+    document.getElementById('report').value = H.report;
+    document.getElementById('copy').disabled = false;
+    document.getElementById('download').disabled = false;
+    status('Done. Press "Copy results" or "Download .md" and send them back.');
+  } finally { btn.disabled = false; }
+};
+
+document.getElementById('run').onclick = ()=>window.runAll().catch(e=>status('Error: '+e.message));
+
+document.getElementById('copy').onclick = async function(){
+  const text = H.report || '';
+  try{ await navigator.clipboard.writeText(text); status('Copied results to clipboard. Paste them back to Chris.'); }
+  catch(e){
+    const ta = document.getElementById('report'); ta.style.display='block'; ta.select();
+    try{ document.execCommand('copy'); status('Copied (via fallback). If not, select the text box below and copy manually.'); }
+    catch(_){ status('Could not auto-copy — select the text box below and copy manually.'); }
+  }
+};
+document.getElementById('download').onclick = function(){
+  const blob = new Blob([H.report||''], {type:'text/markdown'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'citation-results.md';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+  status('Downloaded citation-results.md');
+};
+</script>
+</body>
+</html>
