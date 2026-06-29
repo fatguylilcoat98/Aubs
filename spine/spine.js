@@ -510,7 +510,23 @@
   var HARM_INTENT = /\b(make|made|making|build|building|built|create|creating|construct|synthes|manufactur|produc|cook|brew|assembl|detonat|obtain|acquir|buy|purchase|sell|recipe|formula|blueprint|schematic|instruction|tutorial|step[- ]by[- ]step|how .{0,40}\b(?:made|built|done))/i;
   // common BENIGN collisions stripped before topic detection (bath bomb, f-bomb, "the bomb"…)
   var BENIGN_STRIP = /\b(?:bath|f|the|da|glitter|photo|stink|sex|cherry|cinnamon|smoke) bombs?\b/gi;
-  var SELF_HARM = /\b(kill myself|killing myself|suicide|suicidal|end (?:my|it all) life|end my life|ending my life|take my (?:own )?life|want to die|wanna die|don'?t want to (?:live|be alive|be here|exist)|hurt myself|harm myself|cut(?:ting)? myself|overdose on)\b/i;
+  // Self-harm detection. HIGH-RECALL by design (Safety Path Hardening, from the M14 device
+  // pass): a missed crisis is the worst failure the system can produce, so for self-harm ONLY
+  // we accept some false positives to catch the colloquial/indirect family people actually type
+  // under distress ("i'm just gonna end it", "can't do this anymore", "no reason to go on",
+  // "better off dead"). The one genuine benign collision — bare "end it" (ending a meeting/game)
+  // — is guarded by requiring a crisis verb-phrase ("gonna/about to/ready to … end it"); bare
+  // "end it" / "end the meeting" / "end this subscription" do NOT match.
+  var SELF_HARM = /\b(kill myself|killing myself|suicide|suicidal|end (?:my|it all) life|end my life|ending my life|end it all|take my (?:own )?life|want to die|wanna die|better off dead|don'?t want to (?:live|be alive|be here|exist)|no longer want to be here|(?:gonna|going to|just gonna|just going to|might as well|ready to|about to) end it|can'?t (?:go on|keep going)|can'?t (?:do|take) this any ?more|no reason to (?:live|go on)|tired of living|give up on life|nothing to live for|end my pain|hurt myself|harm myself|cut(?:ting)? myself|overdose on)\b/i;
+
+  // Health-harm: a medical SUBSTANCE co-occurring with a lethal/overdose INTENT, but NOT an
+  // ordinary care intent. Routed to the self-harm CARE response — a "lethal dose of X" question
+  // is far more often a person in crisis than a chemist. PRECISE by design (opposite of the
+  // self-harm asymmetry): ordinary dosing/safety questions must pass, so the discriminator is
+  // intent vocabulary, not the substance. (Safety Path Hardening, Part 2.)
+  var HEALTH_SUBSTANCE = /\b(acetaminophen|tylenol|paracetamol|ibuprofen|advil|motrin|aspirin|insulin|benadryl|diphenhydramine|tramadol|oxycodone|opioids?|benzodiazepines?|xanax|valium|antifreeze|bleach|sleeping pills?|pain ?killers?)\b/i;
+  var HEALTH_HARM_INTENT = /\b(lethal|fatal|deadly|overdose|to die|enough to (?:die|kill)|kill (?:me|myself)|how (?:much|many) .{0,30}(?:die|death|fatal|lethal|overdose))\b/i;
+  var HEALTH_SAFE_INTENT = /\b(safe (?:dose|amount)|recommended|normal dose|usual dose|is it (?:safe|okay|ok)|how often|with food|side ?effects?|for (?:a )?(?:headache|fever|pain|cold|inflammation))\b/i;
 
   function safetyGate(text) {
     var t = String(text || "");
@@ -520,6 +536,10 @@
     }
     var scan = t.replace(BENIGN_STRIP, " ");                       // drop bath-bomb etc. before topic test
     if (HARM_TOPIC.test(scan) && HARM_INTENT.test(scan)) return { blocked: true, reason: "unsafe_topic", category: "harm" };
+    // Health-harm → CARE (self_harm), not a flat refusal. Substance + harm-intent, never an
+    // ordinary care intent. Errs toward care on overdose/lethal framing; ordinary dosing passes.
+    if (HEALTH_SUBSTANCE.test(scan) && HEALTH_HARM_INTENT.test(scan) && !HEALTH_SAFE_INTENT.test(scan))
+      return { blocked: true, reason: "self_harm", category: "self_harm" };
     return { blocked: false };
   }
   /* The text shown when the gate blocks. Self-harm gets care + a real resource, not a flat
