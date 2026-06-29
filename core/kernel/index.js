@@ -6,6 +6,7 @@
   if (typeof require !== "undefined" && typeof module !== "undefined" && module.exports) {
     module.exports = {
       executeIntent: require("./execute").executeIntent,
+      KERNEL_VERSION: require("./execute").KERNEL_VERSION,
       planBuilder: require("./plan-builder"),
       adapters: require("./adapters"),
       explanation: require("./explanation")

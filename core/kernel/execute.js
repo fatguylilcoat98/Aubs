@@ -25,6 +25,7 @@
   // undefined here is fine — the kernel's existing M3/M4 adapter path does not touch it.
   var ELIG   = isNode ? require("../providers/eligibility") : (typeof window !== "undefined" ? window.AUBS_PROVIDER_ELIG : null);
   var CAC_FAILURE_TYPES = ["policy_denied", "no_eligible_provider", "model_error", "validation_error", "timeout", "unsafe_blocked", "internal_error"];
+  var KERNEL_VERSION = "kernel-0.1";   // recorded in every DecisionRecord so replay (M7) can detect kernel drift
 
   async function executeIntent(intentInput, adapters, options) {
     options = options || {}; adapters = adapters || {};
@@ -117,6 +118,7 @@
       explanation: {
         decision: governance.decision, winning_rule: governance.winning_rule, status: status, kind: kind,
         left_device: leftDevice, tag: (result && result.grounding && result.grounding.tag) || null,
+        kernel_version: KERNEL_VERSION,   // M7: enables kernel-version drift detection on replay
         // provider governance trail (M6) — proves provider choice / denial, offline-verifiable
         provider_governed: !!options.providerRegistry,
         provider_id: providerId, provider_type: providerType,
@@ -138,7 +140,7 @@
     return { intent: intent, plan: plan, governance: governance, result: result, failure: failure, record: record, explanation: explanation, status: status, kind: kind, eligibility: eligibility, provider_id: selectedProvider ? selectedProvider.provider_id : (result ? result.provider_id : null) };
   }
 
-  var API = { executeIntent: executeIntent };
+  var API = { executeIntent: executeIntent, KERNEL_VERSION: KERNEL_VERSION };
   if (typeof module !== "undefined" && module.exports) module.exports = API;
   else if (typeof window !== "undefined") window.AUBS_KERNEL_EXECUTE = API;
 })();
