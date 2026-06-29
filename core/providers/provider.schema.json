@@ -1,0 +1,37 @@
+{
+  "$id": "aubs/providers/provider",
+  "title": "AUBS Provider Descriptor v0.1",
+  "description": "The serializable, machine-readable part of a provider adapter. The runtime methods healthCheck() and execute() are validated structurally by the Drift Shield, not by this schema. The kernel speaks CAC; this descriptor describes what a provider can carry so a plan can be matched to providers without provider-specific behavior leaking into the kernel.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["provider_id", "provider_type", "capabilities"],
+  "properties": {
+    "provider_id": { "type": "string", "minLength": 1 },
+    "provider_type": { "type": "string", "enum": ["local", "cloud", "server", "tool", "future"] },
+    "enabled": { "type": "boolean" },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "supports_local", "supports_cloud", "max_egress", "data_classes_allowed",
+        "requires_network", "supports_streaming", "supports_json", "supports_tools",
+        "zero_retention_claimed", "baa_eligible", "region", "cost_class", "latency_class"
+      ],
+      "properties": {
+        "supports_local": { "type": "boolean" },
+        "supports_cloud": { "type": "boolean" },
+        "max_egress": { "type": "string", "enum": ["none", "redacted", "full"] },
+        "data_classes_allowed": { "type": "array", "items": { "type": "string", "enum": ["public", "personal", "sensitive"] } },
+        "requires_network": { "type": "boolean" },
+        "supports_streaming": { "type": "boolean" },
+        "supports_json": { "type": "boolean" },
+        "supports_tools": { "type": "boolean" },
+        "zero_retention_claimed": { "type": "boolean" },
+        "baa_eligible": { "type": "boolean" },
+        "region": { "type": "string", "minLength": 1 },
+        "cost_class": { "type": "string", "enum": ["free", "low", "medium", "high"] },
+        "latency_class": { "type": "string", "enum": ["low", "medium", "high"] }
+      }
+    }
+  }
+}
