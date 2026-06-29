@@ -856,9 +856,21 @@ applyAppearance();
 
 // Build marker — lets us confirm on-device exactly which code is live (the service
 // worker can otherwise serve a stale spine.js / HTML). Bump this with each shipped change.
-const BUILD="cp0-constitution-chat-m14 · governed-local";
+const BUILD="trust-os-1 · constitution-m14 · governed-local";
 console.log("[AUBS] build:", BUILD, "· spine:", (typeof SPINE!=="undefined"&&SPINE)?SPINE.SPINE_VERSION:"NOT LOADED");
-(function(){ const el=document.getElementById('buildTag'); if(el) el.textContent=BUILD+(typeof SPINE!=="undefined"&&SPINE?(" · spine "+SPINE.SPINE_VERSION):" · spine MISSING"); })();
+// Honest on-device marker: real build + spine version + whether the Trust OS scripts actually
+// loaded + which flags are active this session. This is the reliable "what's live" indicator.
+(function(){
+  const el=document.getElementById('buildTag'); if(!el) return;
+  const sp=(typeof SPINE!=="undefined"&&SPINE)?(" · spine "+SPINE.SPINE_VERSION):" · spine MISSING";
+  const tos=(typeof window!=="undefined"&&window.AUBS_TRUST&&window.AUBS_TRUST.record)?" · trust-os LOADED":" · trust-os ABSENT";
+  const fl=[];
+  if(typeof FLAG_CONSTITUTION_CHAT!=="undefined"&&FLAG_CONSTITUTION_CHAT) fl.push("spine");
+  if(typeof FLAG_GOVERNED_FACTS!=="undefined"&&FLAG_GOVERNED_FACTS) fl.push("facts");
+  if(typeof FLAG_TRUST_OS!=="undefined"&&FLAG_TRUST_OS) fl.push("trust");
+  if(typeof SPINE!=="undefined"&&SPINE&&SPINE.FLAGS&&SPINE.FLAGS.FLAG_IDENTITY_V2) fl.push("identity");
+  el.textContent=BUILD+sp+tos+" · flags: "+(fl.length?fl.join(","):"none");
+})();
 
 // Fast default = Qwen2.5-0.5B-Instruct — the original "0.9 GB test model" (945MB download)
 // that ran coherent + crash-free on the phone before we ever switched it. It's a sweet
@@ -1013,7 +1025,13 @@ window.send=async function(){
   const routed=(!gate.blocked && routerOn&&SPINE.routeQuery)?SPINE.routeQuery(text,{ entries:routerEntries, persona:S.aiName, instructions:S.instructions }):null;
   // A2 — GOVERNED-FACT REGISTRY: the FIRST pre-model owner. Computed before the model; the
   // gf branch below is checked before the router so the registry has first refusal over identity.
-  const gf=(!gate.blocked && governedFactsOn())?window.AUBS_FACT_GATE.governedFactGate(text,{ resolved:governedFactResolved(), runtime:aubsRuntimeMeta(), exclude:["user_profile"], enabled:true }):{handled:false};
+  // Inline governed-fact answer is used ONLY when we are NOT routing through the constitutional
+  // pipeline+Trust OS. When spine+trust are on, let the pipeline handle governed facts (stage 4a)
+  // so EVERY turn — governed or open-ended — produces a real Trust Record + Glass Box line, and
+  // the creator/runtime metadata flows through one path. (Also lets "what do you know about me"
+  // reach the pipeline memory stage instead of a dead-end.)
+  const useInlineGovernedFacts = governedFactsOn() && !(constitutionChatOn() && trustOsOn());
+  const gf=(!gate.blocked && useInlineGovernedFacts)?window.AUBS_FACT_GATE.governedFactGate(text,{ resolved:governedFactResolved(), runtime:aubsRuntimeMetaFull(), exclude:["user_profile"], enabled:true }):{handled:false};
   const RECOVERABLE=/GPUBuffer|mapAsync|unmapped|device is lost|Device is lost|disposed|not loaded|reload\(/i;
   try{
     if(gate.blocked){
