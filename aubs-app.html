@@ -339,6 +339,24 @@ body{background:var(--bgbase);color:var(--ink);font-family:var(--font-body);
 <script src="spine/spine.js"></script>
 <!-- AUBS Ledger (Milestone 0) — tamper-evident provenance; inert unless FLAG_LEDGER is on -->
 <script src="spine/ledger.js"></script>
+<!-- AUBS constitutional runtime (Milestones 1–4) — CAC + GEL + Kernel + chat bridge.
+     Classic scripts: they only DEFINE globals (window.AUBS_CAC/GEL/KERNEL/…). Completely
+     inert unless FLAG_KERNEL_CHAT is on; with the flag off the app behaves exactly as before.
+     Order matters: browser-assets (schemas+bundle) → CAC → GEL → kernel → chat bridge. -->
+<script src="core/browser-assets.js"></script>
+<script src="core/cac/validate.js"></script>
+<script src="core/cac/builders.js"></script>
+<script src="core/cac/decision-record-adapter.js"></script>
+<script src="core/cac/index.js"></script>
+<script src="core/gel/evaluate.js"></script>
+<script src="core/gel/simulator.js"></script>
+<script src="core/gel/index.js"></script>
+<script src="core/kernel/plan-builder.js"></script>
+<script src="core/kernel/adapters.js"></script>
+<script src="core/kernel/explanation.js"></script>
+<script src="core/kernel/execute.js"></script>
+<script src="core/kernel/index.js"></script>
+<script src="core/kernel/chat-bridge.js"></script>
 <script type="module">
 import * as webllm from "https://esm.run/@mlc-ai/web-llm@0.2.84";
 const SPINE = (typeof window!=="undefined" && window.AUBS_SPINE) ? window.AUBS_SPINE : null;
@@ -359,6 +377,23 @@ if(SPINE && SPINE.FLAGS){
   }catch(e){}
 }
 
+/* ── Milestone 4 — FLAG_KERNEL_CHAT (default OFF) ───────────────────────────────────
+   When ON, the REAL chat model turn is routed through the constitutional kernel:
+   user message → CAC Intent → deterministic Plan → GEL decision → (allow? the SAME
+   on-device WebLLM completion : block) → CAC Result/Failure → signed DecisionRecord →
+   Level 1 explanation → normal chat bubble. The safety gate and router are unchanged and
+   still run first. With the flag OFF, none of this executes and AUBS behaves exactly as
+   today. Enable per-session: ?kernel=1 (or aubs_kernel=1). The working offline loop is
+   never replaced — the kernel's adapter calls into it. */
+let FLAG_KERNEL_CHAT=false;
+try{
+  const qp=new URLSearchParams(location.search);
+  if(qp.get('kernel')==='1'||localStorage.getItem('aubs_kernel')==='1') FLAG_KERNEL_CHAT=true;
+  if(qp.get('kernel')==='0'){ FLAG_KERNEL_CHAT=false; try{ localStorage.removeItem('aubs_kernel'); }catch(_){} }
+  if(qp.get('kernel')==='1'){ try{ localStorage.setItem('aubs_kernel','1'); }catch(_){} }
+}catch(e){}
+function kernelChatOn(){ return !!(FLAG_KERNEL_CHAT && typeof window!=="undefined" && window.AUBS_KERNEL && window.AUBS_KERNEL.executeIntent && window.AUBS_KERNEL_CHAT && window.AUBS_KERNEL_CHAT.runKernelChat); }
+
 /* ── Milestone 0 — Ledger wiring (additive, behind FLAG_LEDGER) ──────────────────
    When ON, every provenance record is ALSO appended to a real append-only, hash-chained,
    Ed25519-signed IndexedDB ledger. When OFF, none of this runs. A device key is generated
@@ -366,6 +401,9 @@ if(SPINE && SPINE.FLAGS){
    can NEVER affect the chat loop. Offline verification: window.aubsLedger.verify(). */
 const LEDGER = (typeof window!=="undefined" && window.AUBS_LEDGER) ? window.AUBS_LEDGER : null;
 function ledgerOn(){ return !!(SPINE&&SPINE.FLAGS&&SPINE.FLAGS.FLAG_LEDGER&&LEDGER&&typeof indexedDB!=="undefined"); }
+// Kernel mode (M4) also writes DecisionRecords — into the SAME ledger the verifier reads —
+// so the ledger initialises whenever EITHER flag wants it.
+function ledgerWanted(){ return !!(LEDGER&&typeof indexedDB!=="undefined"&&(ledgerOn()||kernelChatOn())); }
 let _ledgerCtx=null, _ledgerInit=null;
 function _keyDB(){ return new Promise((res,rej)=>{ const r=indexedDB.open("aubs_ledger_keys",1); r.onupgradeneeded=()=>{ const db=r.result; if(!db.objectStoreNames.contains("meta")) db.createObjectStore("meta"); }; r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
 async function _loadOrCreateKey(){
@@ -377,7 +415,7 @@ async function _loadOrCreateKey(){
   return keys;
 }
 async function ensureLedger(){
-  if(!ledgerOn()) return null;
+  if(!ledgerWanted()) return null;
   if(_ledgerCtx) return _ledgerCtx;
   if(!_ledgerInit) _ledgerInit=(async()=>{ const store=LEDGER.createIndexedDBStore("aubs_ledger","records"); const keys=await _loadOrCreateKey(); _ledgerCtx={store,keys}; return _ledgerCtx; })().catch(e=>{ console.warn('[ledger] init failed (chat unaffected):',e); return null; });
   return _ledgerInit;
@@ -401,7 +439,7 @@ window.verifyLedgerUI=async function(){
   }catch(e){ toast("Verify failed: "+(e&&e.message?e.message:e)); }
 };
 async function refreshLedgerRow(){
-  if(!ledgerOn()) return;
+  if(!ledgerWanted()) return;
   const row=document.getElementById('ledgerRow'); if(row) row.style.display='block';
   try{ const n=await window.aubsLedger.count(); const el=document.getElementById('ledgerCount'); if(el) el.textContent=n+" record"+(n===1?"":"s")+" · signed, hash-chained"; }catch(e){}
 }
@@ -646,7 +684,7 @@ applyAppearance();
 
 // Build marker — lets us confirm on-device exactly which code is live (the service
 // worker can otherwise serve a stale spine.js / HTML). Bump this with each shipped change.
-const BUILD="cp0-ledger-m0 · provenance-spine";
+const BUILD="cp0-kernel-wrap-m4 · governed-local";
 console.log("[AUBS] build:", BUILD, "· spine:", (typeof SPINE!=="undefined"&&SPINE)?SPINE.SPINE_VERSION:"NOT LOADED");
 (function(){ const el=document.getElementById('buildTag'); if(el) el.textContent=BUILD+(typeof SPINE!=="undefined"&&SPINE?(" · spine "+SPINE.SPINE_VERSION):" · spine MISSING"); })();
 
@@ -803,6 +841,12 @@ window.send=async function(){
         ? SPINE.fallbackPrompt({ entries:routerEntries, persona:S.aiName, instructions:S.instructions })
         : buildSystemPrompt(promptMode(text)) };
       const sent=contextMessages();                   // exact messages sent to the model (logged in provenance)
+      if(kernelChatOn()){
+        // Milestone 4 (FLAG_KERNEL_CHAT): wrap this real model turn in the kernel —
+        // Intent→Plan→GEL→(allow? the SAME WebLLM completion the else-branch uses : block)
+        // →Result/Failure→DecisionRecord→Level 1 explanation. The working loop is not replaced.
+        await runModelTurnThroughKernel(text, sent, bubble, aiWrap, t0, routerOn);
+      } else {
       // Generate with AUTOMATIC recovery: on a WebGPU fault / disposed-or-unloaded engine,
       // recreate from the CACHED model and retry the SAME prompt once (recovered guard = no loop).
       const MAX_ATTEMPTS=2;
@@ -848,11 +892,88 @@ window.send=async function(){
       }else{
         bubble.textContent="(No text came back. finish: "+(finish||"?")+" · model: "+(chosenModel||"?")+". Tap send again.)";
       }
+      }   /* end else (non-kernel model path) */
     }
   }finally{
     window.__busy=false; sendBtn.disabled=false; document.getElementById('box').focus(); thread.scrollTop=thread.scrollHeight;
   }
 };
+/* ── Milestone 4 — run one model turn through the kernel (only when FLAG_KERNEL_CHAT). ──
+   The kernel's REAL local adapter calls `generate()` below — the SAME WebLLM completion +
+   recovery the non-kernel path uses (one engine; nothing is loaded twice). GEL decides
+   first: on `allow` the model runs; on deny/require_reauth the model is NEVER called. Every
+   terminal path writes a signed DecisionRecord into the same ledger "Verify integrity" reads.
+   We never silently fall back to the old path — an error is shown and recorded. */
+async function runModelTurnThroughKernel(text, sent, bubble, aiWrap, t0, routerOn){
+  // generate(): the working offline loop, wrapped. Throws on an unrecoverable fault so the
+  // kernel can record a CAC Failure; returns {text, finish} on success.
+  const generate=async ()=>{
+    let full=""; let finish=""; let fatalErr=null; let recovered=false;
+    const MAX_ATTEMPTS=2;
+    for(let attempt=1; attempt<=MAX_ATTEMPTS; attempt++){
+      try{
+        const res=await engine.chat.completions.create({ messages:sent, stream:false, temperature:0.7, max_tokens:256 });
+        full=res?.choices?.[0]?.message?.content||"";
+        finish=res?.choices?.[0]?.finish_reason||finish;
+        fatalErr=null; break;
+      }catch(genErr){
+        fatalErr=genErr;
+        const msg=(genErr&&genErr.message?genErr.message:String(genErr));
+        console.error('[AUBS kernel] inference error (attempt '+attempt+'):', genErr);
+        if(RECOVERABLE.test(msg) && attempt<MAX_ATTEMPTS && !recovered){
+          recovered=true; bubble.textContent="Reconnecting the engine… (a few seconds)";
+          const okR=await recoverEngine(); if(!okR) break; await new Promise(r=>setTimeout(r,300));
+        }else{ break; }
+      }
+    }
+    if(!full && fatalErr) throw fatalErr;          // let the kernel turn this into a CAC Failure
+    return { text:full, finish };
+  };
+  let res;
+  try{
+    const c=await ensureLedger();                  // same IndexedDB ledger the verifier reads
+    res=await window.AUBS_KERNEL_CHAT.runKernelChat({
+      text, generate, model_id:(chosenModel||"local-model"),
+      ledgerStore:c?c.store:null, signingKey:(c&&c.keys)?c.keys.privateKey:null
+      // bundle omitted → kernel uses the default-allow-local bundle (local chat is allowed)
+    });
+  }catch(e){
+    console.error('[AUBS kernel] bridge error (NOT silently falling back):', e, '·', gpuDiagStr());
+    bubble.textContent="Kernel path error: "+(e&&e.message?e.message:e)+"  ["+gpuDiagStr()+"]";
+    return;
+  }
+  const ui=res.ui||{};
+  if(ui.ok){
+    let outText=ui.text;
+    // Same narrow router cleanup the non-kernel path applies (only when the router is on).
+    if(routerOn && SPINE && SPINE.cleanModelOutput){ try{ const cc=SPINE.cleanModelOutput(outText); if(cc&&cc.text) outText=cc.text; }catch(_){} }
+    bubble.textContent=outText;
+    history.push({role:"assistant",content:outText}); saveHistory(history.slice(1));
+    captureMemories(text);
+  }else{
+    // blocked (policy) or failed (engine) — show the honest message; do not fabricate an answer.
+    bubble.textContent=ui.text;
+    if(ui.blocked){ history.push({role:"assistant",content:ui.text}); saveHistory(history.slice(1)); }
+  }
+  attachKernelWhy(aiWrap, res);
+  if(typeof refreshLedgerRow==="function") refreshLedgerRow();
+}
+/* Kernel "Why?" — the Level 1 explanation + DecisionRecord, derived from RECORDED STATE,
+   never from model output (Milestone 4 explainability). */
+function attachKernelWhy(aiWrap, res){
+  if(!aiWrap || !res) return;
+  const ui=res.ui||{}; const g=res.governance||{};
+  const why=document.createElement('button');
+  why.type='button';
+  why.textContent='Why? · '+(ui.explanation||'kernel');
+  why.setAttribute('aria-label','Why this answer (kernel decision record)');
+  why.style.cssText='margin:6px 0 2px;font:inherit;font-size:11px;letter-spacing:.04em;background:transparent;border:0;color:var(--faint);cursor:pointer;padding:2px 0;opacity:.75';
+  why.onclick=function(){
+    console.log('[AUBS Kernel decision]', { explanation:ui.explanation, decision:g.decision, winning_rule:g.winning_rule, execution_type:ui.execution_type, record_seq:ui.record_seq, record_id:ui.record_id, record:res.record });
+    toast((ui.explanation||'kernel')+' · decision: '+(g.decision||'?')+' · record #'+(ui.record_seq!=null?ui.record_seq:'—'));
+  };
+  aiWrap.appendChild(why);
+}
 function addMsg(role,text){
   const thread=document.getElementById('thread'); const el=document.createElement('div'); el.className='msg '+role;
   el.innerHTML='<div class="who">'+(role==='user'?(S.userName?S.userName.toUpperCase():'YOU'):S.aiName.toUpperCase())+'</div><div class="bubble"></div>';

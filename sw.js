@@ -6,11 +6,16 @@
    - Cross-origin (model CDN, esm.run, fonts): never intercepted —
      WebLLM caches the model itself.
    Bump CACHE to force clients onto fresh code. */
-const CACHE = "aubs-shell-v18";
+const CACHE = "aubs-shell-v19";
 const STATIC = [
   "./manifest.json","./icon-192.png","./icon-512.png",
   "./apple-touch-icon.png","./favicon.png","./aubs-landing-art.png",
   "./spine/spine.js","./spine/ledger.js",
+  // Constitutional runtime (M1–M4) — precached so kernel mode + offline verify work offline.
+  "./core/browser-assets.js",
+  "./core/cac/validate.js","./core/cac/builders.js","./core/cac/decision-record-adapter.js","./core/cac/index.js",
+  "./core/gel/evaluate.js","./core/gel/simulator.js","./core/gel/index.js",
+  "./core/kernel/plan-builder.js","./core/kernel/adapters.js","./core/kernel/explanation.js","./core/kernel/execute.js","./core/kernel/index.js","./core/kernel/chat-bridge.js",
   "./fonts.css",
   "./fonts/inter-400.woff2","./fonts/inter-500.woff2","./fonts/inter-600.woff2",
   "./fonts/space-grotesk-400.woff2","./fonts/space-grotesk-500.woff2",
