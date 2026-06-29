@@ -1,0 +1,30 @@
+{
+  "$id": "aubs/cac/plan",
+  "title": "CAC Plan v0.1",
+  "description": "The DETERMINISTIC execution plan, produced before any model call. No model is consulted to build a plan.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["cac_version", "plan_id", "intent_id", "created_at", "steps", "requires_governance", "status"],
+  "properties": {
+    "cac_version":         { "const": "0.1" },
+    "plan_id":             { "type": "string" },
+    "intent_id":           { "type": "string" },
+    "created_at":          { "type": "string", "format": "date-time" },
+    "requires_governance": { "type": "boolean" },
+    "status":              { "enum": ["draft", "ready", "executed", "failed"] },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["step_type"],
+        "properties": {
+          "step_type": { "enum": ["memory_read", "retrieve", "model_call", "tool_call", "deterministic_answer", "refusal"] },
+          "target":    { "type": "string" },
+          "egress":    { "enum": ["none", "redacted", "full"] },
+          "detail":    { "type": "string" }
+        }
+      }
+    }
+  }
+}

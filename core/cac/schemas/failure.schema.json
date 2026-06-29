@@ -1,0 +1,18 @@
+{
+  "$id": "aubs/cac/failure",
+  "title": "CAC Failure v0.1",
+  "description": "An EXPLICIT failure state. Failure is always a first-class object, never a silent fallback.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["cac_version", "failure_id", "intent_id", "plan_id", "failure_type", "message", "recoverable", "created_at"],
+  "properties": {
+    "cac_version":  { "const": "0.1" },
+    "failure_id":   { "type": "string" },
+    "intent_id":    { "type": ["string", "null"] },
+    "plan_id":      { "type": ["string", "null"] },
+    "failure_type": { "enum": ["policy_denied", "no_eligible_provider", "model_error", "validation_error", "timeout", "unsafe_blocked", "internal_error"] },
+    "message":      { "type": "string" },
+    "recoverable":  { "type": "boolean" },
+    "created_at":   { "type": "string", "format": "date-time" }
+  }
+}

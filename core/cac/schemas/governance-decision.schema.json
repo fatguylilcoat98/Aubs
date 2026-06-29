@@ -1,0 +1,19 @@
+{
+  "$id": "aubs/cac/governance-decision",
+  "title": "CAC Governance Decision v0.1",
+  "description": "The policy outcome attached to a plan. Produced by the GEL (Milestone 2); the shape is fixed now so the GEL has a target.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["cac_version", "decision_id", "plan_id", "decision", "winning_rule", "precedence_level", "policy_bundle_hash", "created_at"],
+  "properties": {
+    "cac_version":        { "const": "0.1" },
+    "decision_id":        { "type": "string" },
+    "plan_id":            { "type": "string" },
+    "decision":           { "enum": ["allow", "deny", "modify", "require_reauth"] },
+    "winning_rule":       { "type": "string" },
+    "precedence_level":   { "enum": ["regulatory", "org", "group", "user", "default"] },
+    "policy_bundle_hash": { "type": "string" },
+    "reason":             { "type": "string" },
+    "created_at":         { "type": "string", "format": "date-time" }
+  }
+}
