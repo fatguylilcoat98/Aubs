@@ -41,6 +41,21 @@ t("runConstitutionalChat call passes trustOS + publicKey + runtime", /trustOS:tr
 t("Glass Box line rendered from ui.glass_box_easy under the answer", /ui\.glass_box_easy && trustOsOn\(\)/.test(html) && /glass-box-easy/.test(html));
 t("creator metadata is Christopher Hughes", /creator:"Christopher Hughes"/.test(html));
 
+// REGRESSION (device): the landing page MUST carry the query string into the app, or flags
+// (?spine/?facts/?trust) are stripped on entry and the app loads flags-OFF (old behavior).
+{
+  const index = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
+  const navs = (index.match(/aubs-app\.html['"]?/g) || []).length;
+  const preserved = (index.match(/aubs-app\.html'\+location\.search/g) || []).length;
+  t("index.html preserves location.search on EVERY navigation into the app", navs > 0 && preserved === navs);
+}
+// SW precaches the new scripts and the cache is bumped (so the fresh build reaches devices).
+{
+  const sw = fs.readFileSync(path.join(ROOT, "sw.js"), "utf8");
+  t("sw.js precaches the Trust OS + facts scripts (offline support)", /core\/trust\/index\.js/.test(sw) && /core\/facts\/registry\.js/.test(sw));
+  t("sw.js cache version bumped past v21", /aubs-shell-v2[2-9]/.test(sw));
+}
+
 console.log("\nAssertions: " + pass + "/" + (pass + fail));
 if (fail) { console.log("FAILURES:\n" + F.join("\n")); process.exit(1); }
 console.log("Trust OS HTML wiring: scripts exist + load in dependency order before pipeline.js; the turn passes trustOS/publicKey/runtime; the Glass Box renders. Ready for the device pass.");

@@ -6,7 +6,7 @@
    - Cross-origin (model CDN, esm.run, fonts): never intercepted —
      WebLLM caches the model itself.
    Bump CACHE to force clients onto fresh code. */
-const CACHE = "aubs-shell-v21";
+const CACHE = "aubs-shell-v22";
 const STATIC = [
   "./manifest.json","./icon-192.png","./icon-512.png",
   "./apple-touch-icon.png","./favicon.png","./aubs-landing-art.png",
@@ -24,6 +24,10 @@ const STATIC = [
   "./core/skills/explanation.js","./core/skills/eligibility.js","./core/skills/execute.js","./core/skills/fake-skills.js","./core/skills/registry.js","./core/skills/replay-skill.js","./core/skills/index.js",
   "./core/planner/graph.js","./core/planner/summary.js","./core/planner/record.js","./core/planner/estimate.js","./core/planner/planner.js","./core/planner/replay-planner.js","./core/planner/index.js",
   "./core/replay/evidence.js","./core/replay/replay-engine.js","./core/replay/index.js",
+  // Governed-fact registry (A1/A2) + Trust OS (Layers 1–9) — precached so ?facts=1 / ?trust=1
+  // work offline too. Loaded after spine/ledger, before pipeline.js (see aubs-app.html order).
+  "./core/facts/registry.js","./core/facts/classifier.js","./core/facts/gate.js","./core/facts/provenance.js","./core/facts/bundle.js",
+  "./core/trust/strengths.js","./core/trust/hash.js","./core/trust/trust-record.js","./core/trust/memory-types.js","./core/trust/reasoning-permission.js","./core/trust/egress.js","./core/trust/egress-ledger.js","./core/trust/decision-trace.js","./core/trust/check-order.js","./core/trust/proofs/integrity.js","./core/trust/proofs/provenance.js","./core/trust/proofs/grounding.js","./core/trust/proofs/decision.js","./core/trust/proofs/privacy.js","./core/trust/proofs/memory.js","./core/trust/verifier.js","./core/trust/glass-box.js","./core/trust/index.js",
   "./core/constitution/explain.js","./core/constitution/graph.js","./core/constitution/pipeline.js","./core/constitution/audit.js","./core/constitution/index.js","./core/constitution/chat.js",
   "./fonts.css",
   "./fonts/inter-400.woff2","./fonts/inter-500.woff2","./fonts/inter-600.woff2",
