@@ -60,20 +60,21 @@ const LEAK = "As an AI language model, I can't, but here's the plan.";
   t("ON coach: compiled voice reflects the coach archetype", /punchy/.test(app.compiledPersona()));
 }
 
-// ── ON, free-text selection (?persona=talk like Trump) + resolved display name ────────────────
+// ── ON, free-text selection (?persona=talk like Donald Trump) — ACTIVATES anyone/anything ─────
 {
-  const app = makeApp(true, "talk like Trump", {}, () => ({ assistantDisplayName: "Trump" }));
+  const app = makeApp(true, "talk like Donald Trump", {}, () => ({ assistantDisplayName: "AUBS" }));
   const cp = app.compiledPersona();
-  t("ON free-text: uses the resolved assistant display name", /speaking as Trump/.test(cp));
-  t("ON free-text: free text is carried as a style note (not trusted to define identity)",
-    /Style note: talk like Trump/.test(cp) && app.activePersona().id === "aubs");
+  t("ON free-text: activates the requested subject (model supplies the knowledge)",
+    /perform the voice and manner of: Donald Trump/.test(cp));
+  t("ON free-text: carries the honesty clause and is NOT trusted to define identity",
+    /never claim to literally be Donald Trump/.test(cp) && app.activePersona().id === "aubs");
 }
 
-// ── ON, no explicit selection → falls back to the user's style note (S.instructions) ──────────
+// ── ON, no explicit selection → activates the user's own style note (S.instructions) ──────────
 {
   const app = makeApp(true, null, { instructions: "keep it brief and kind" }, () => ({ assistantDisplayName: "AUBS" }));
-  t("ON: empty selection falls back to S.instructions as the directive",
-    /Style note: keep it brief and kind/.test(app.compiledPersona()));
+  t("ON: empty selection falls back to S.instructions and activates it as a register/tone",
+    /adopt this style and tone: keep it brief and kind/.test(app.compiledPersona()));
 }
 
 console.log("\nAssertions: " + pass + "/" + (pass + fail));

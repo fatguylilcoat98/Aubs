@@ -23,8 +23,40 @@ t("resolve partial override merges onto a built-in", P.resolvePersona({ id: "fri
   t("compiled instruction sets the voice + boundaries", /Voice:/.test(a) && /Never cross/.test(a));
   t("compiled instruction forbids 'as an AI language model' / model identity", /as an AI language model/i.test(a) && /ChatGPT\/GPT\/Claude\/Gemini/.test(a));
   t("compiled instruction states safety/truth/facts OUTRANK persona", /Safety and truth come first/.test(a) && /never changes the FACTS/.test(a));
-  const named = P.compilePersona(P.resolvePersona("talk like Trump"), { assistantDisplayName: "Trump" });
-  t("compiled uses the resolved assistant name + carries the free-text style note", /speaking as Trump/.test(named) && /Style note: talk like Trump/.test(named));
+  const named = P.compilePersona(P.resolvePersona("talk like Donald Trump"), { assistantDisplayName: "AUBS" });
+  t("compiled uses the resolved assistant name + ACTIVATES the requested subject",
+    /speaking as AUBS/.test(named) && /perform the voice and manner of: Donald Trump/.test(named));
+  t("activation carries the honesty clause (perform style, never falsify identity)",
+    /performance of STYLE, not a change of identity/.test(named) && /never claim to literally be Donald Trump/.test(named));
+}
+
+// ── PERSONA ACTIVATION ENGINE — anyone, anything (model = knowledge, runtime = activation) ─────
+{
+  // mode detection: named figure → impression; article role → character; trait → register
+  t("detectMode: 'Donald Trump' → impression", P.detectMode("Donald Trump") === "impression");
+  t("detectMode: 'a pirate' → character", P.detectMode("a pirate") === "character");
+  t("detectMode: 'sarcastic and dry' → register", P.detectMode("sarcastic and dry") === "register");
+  t("parseActivation strips lead-ins ('speak like a 1950s radio host' → 'a 1950s radio host')",
+    P.parseActivation("speak like a 1950s radio host").subject === "a 1950s radio host");
+
+  // a fictional/role character embodies + gets the honesty clause too
+  const pirate = P.compilePersona(P.resolvePersona("act as a grizzled pirate captain"), { assistantDisplayName: "AUBS" });
+  t("character: embodies the role and leans on model knowledge",
+    /perform the voice and manner of: a grizzled pirate captain/.test(pirate) && /Draw on what you know about how/.test(pirate));
+
+  // a pure tone/trait is a register directive (no false-identity risk, no impersonation clause)
+  const reg = P.compilePersona(P.resolvePersona("be very sarcastic"), { assistantDisplayName: "AUBS" });
+  t("register: tone directive, no impersonation/honesty clause",
+    /adopt this style and tone: very sarcastic/.test(reg) && !/never claim to literally be/.test(reg));
+
+  // activation is deterministic and ALWAYS keeps the precedence law (facts/safety outrank persona)
+  const a1 = P.compilePersona(P.resolvePersona("channel Yoda"));
+  const a2 = P.compilePersona(P.resolvePersona("channel Yoda"));
+  t("activation is deterministic (same request → same instruction)", a1 === a2);
+  t("activation still states safety/truth/facts OUTRANK the persona",
+    /Safety and truth come first/.test(a1) && /never changes the FACTS/.test(a1));
+  t("activatePersona() alias resolves the same as resolvePersona()",
+    JSON.stringify(P.activatePersona("channel Yoda")) === JSON.stringify(P.resolvePersona("channel Yoda")));
 }
 
 // ── persona guard strips model-identity / AI-disclaimer leaks ────────────────────────────────
