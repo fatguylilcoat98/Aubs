@@ -185,6 +185,13 @@ where it adds warmth, plain where it adds clarity. The more here, the fewer mode
 
 ## 7. Memory-First Answering — if we already know, don't ask the model
 
+> **DOCTRINE (constitutional ordering, not a feature).** The order is fixed and one-directional:
+> **Runtime Truth → Memory Recall → Governed Facts → LLM.** Never *LLM → maybe memory*. The runtime
+> is the authoritative source for user-specific knowledge; the model is consulted only for what the
+> runtime genuinely does not own. This ordering is what makes AUBS able to say "I know who you are,
+> and I know it without asking the model." Once it is rock-solid, widening deterministic responders
+> is an optimization, not a dependency.
+
 When the user's question maps to a stored, permitted memory fact, answer it **deterministically
 from memory** (model 0×, self-verifiable, provenance-tagged) instead of sending it to the model.
 "What do you know about me?" / "where do I live?" → recalled from owned memory, not improvised.
@@ -198,6 +205,22 @@ about you yet") instead of letting the model invent a personal fact; and (5) **f
 *ambiguous* miss so the model still handles it (never a dead-end). On the pipeline path each recall
 is a `governed_fact` Trust Record (model 0×). Flag-gated by `FLAG_GOVERNED_FACTS` (OFF →
 byte-identical). Tests: `run-memory-recall` (15/15) + end-to-end in `run-constitution-chat`.
+
+### 7.1 Supersession + forget (adversarial hardening)
+Memory-first is only trustworthy if stored knowledge stays *current* and *removable*. Two failure
+modes were closed (Architect Mode Priority 1 — "spend a merge trying to destroy it"):
+- **Supersession** — "I live in Denver" then "I moved to Seattle" must answer **Seattle**, not the
+  stale Denver. `SPINE.reconcileMemories` classifies each fact's *slot* (`factSlot`); a new value in
+  a **single-value** slot (name/location/job/building/`favorite:<thing>`) **replaces** the old one,
+  while **multi-value** slots (`likes`/`has`, e.g. "I have two dogs" + "a sister") accumulate. Recall
+  is additionally **newest-wins** and listings **collapse to the newest per slot** — defense in depth.
+- **Forget** — "forget my favorite color" / "forget everything" removes the targeted fact(s)
+  (`isForgetCommand` → slot/keyword match) and answers deterministically (model 0×); afterward the
+  attribute honestly returns "I don't know," never the deleted value.
+`extractFacts` also learned the *move* ("moved to / now live in X") and *possession* ("I have N …")
+shapes. All flag-gated with `FLAG_GOVERNED_FACTS`; OFF keeps the original append+dedup capture.
+Proof: `run-memory-adversarial` (17/17) runs the exact human scripts — cross-slot isolation,
+supersession, multi-value, forget (single + all), no over-capture, honest on the unknown.
 
 ---
 

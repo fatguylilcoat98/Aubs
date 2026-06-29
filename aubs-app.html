@@ -860,6 +860,18 @@ function extractFacts(text){
   return facts;
 }
 function captureMemories(userText){
+  // MEMORY-FIRST (flag ON): reconcile through the spine — capture new facts AND supersede a
+  // changed single-value fact ("I moved to Seattle" replaces the old home) so recall never
+  // returns a stale value. Flag OFF → the original append + exact-dedup (byte-identical).
+  if(governedFactsOn() && SPINE && SPINE.reconcileMemories){
+    const r=SPINE.reconcileMemories(memories, userText);
+    if(r.added.length || r.removed.length){
+      memories=r.memories;
+      if(memories.length>MEM_MAX) memories=memories.slice(-MEM_MAX);
+      saveMemories(); rebuildSystemPrompt(); updateMemCount();
+    }
+    return;
+  }
   let changed=false;
   // Bug-1 fix: prefer the spine's centralized, unit-tested extractor (handles
   // "im chris" / lowercase / mid-sentence). Falls back to the local one if the
@@ -1106,6 +1118,20 @@ window.send=async function(){
       // in that moment does not need a provenance chip; attachWhy renders nothing for tag 'safety').
       const provText=isCrisis?"[redacted: self-harm safety response]":text;
       logProvenanceFor(provText, full, [history[0],{role:"user",content:provText}], t0, aiWrap, { handled:true, intent:gate.reason, source_of_answer:"rule", tag:isCrisis?"safety":"unknown", memory_ids_cited:[], grounding_source:null });
+    } else
+    if(!gate.blocked && governedFactsOn() && SPINE.isForgetCommand && SPINE.isForgetCommand(text)){
+      // MEMORY COMMAND — FORGET. The runtime owns memory management (model 0×): remove the
+      // targeted fact(s) and answer deterministically. Honest when there was nothing to forget.
+      const fr=SPINE.reconcileMemories(memories, text);
+      memories=fr.memories; if(memories.length>MEM_MAX) memories=memories.slice(-MEM_MAX);
+      saveMemories(); rebuildSystemPrompt(); updateMemCount();
+      full = fr.removed.length
+        ? ("Done — I've forgotten "+(fr.removed.length>1?("those "+fr.removed.length+" things"):"that")+".")
+        : "There's nothing stored about that, so there's nothing to forget.";
+      finish="memory:forget"; bubble.textContent=full;
+      history.push({role:"assistant",content:full});
+      saveHistory(history.slice(1));
+      logProvenanceFor(text, full, [history[0],{role:"user",content:text}], t0, aiWrap, { handled:true, intent:"memory:forget", source_of_answer:"runtime_fact", tag:"general", memory_ids_cited:[], grounding_source:null });
     } else
     if(gf.handled){
       // GOVERNED-FACT REGISTRY (A2) — the FIRST pre-model owner. Answer the governed fact from

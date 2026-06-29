@@ -360,8 +360,9 @@
       if ((m = c.match(/\b(?:my name is|my name's|call me|i'm called|i am called)\s+([A-Za-z][\w'-]*(?:\s+[A-Za-z][\w'-]*)?)/i))) {
         if (looksLikeName(m[1])) { facts.push("User's name is " + capitalizeName(tidyFact(m[1]))); nameFound = true; }
       }
-      // location
-      if ((m = c.match(/\bi\s*(?:'m\s+|am\s+)?(?:live|living|reside|located)\s+in\s+(.+)/i))) { facts.push("User lives in " + tidyFact(m[1])); otherFound = true; }
+      // location — incl. a MOVE ("I moved to X" / "I now live in X"), which supersedes the old home.
+      if ((m = c.match(/\bi\s*(?:'ve\s+|have\s+)?(?:just\s+)?(?:moved|relocated)\s+to\s+(.+)/i))) { facts.push("User lives in " + tidyFact(m[1])); otherFound = true; }
+      else if ((m = c.match(/\bi\s*(?:'m\s+|am\s+)?(?:now\s+)?(?:live|living|reside|located)\s+in\s+(.+)/i))) { facts.push("User lives in " + tidyFact(m[1])); otherFound = true; }
       else if ((m = c.match(/\bi(?:'m| am)\s+from\s+(.+)/i))) { facts.push("User is from " + tidyFact(m[1])); otherFound = true; }
       // builds / working on
       if ((m = c.match(/\bi\s+(?:build|make|create|develop|design)\s+(.+)/i))) { facts.push("User builds " + tidyFact(m[1])); otherFound = true; }
@@ -372,6 +373,9 @@
       if ((m = c.match(/\bi\s+(?:like|love|enjoy|prefer)\s+(.+)/i))) { facts.push("User likes " + tidyFact(m[1])); otherFound = true; }
       // favourite
       if ((m = c.match(/\bmy\s+(favou?rite\s+.+?\s+is\s+.+)/i))) { facts.push("User's " + tidyFact(m[1])); otherFound = true; }
+      // possessions / dependents ("I have two dogs", "I have a sister") — quantifier-scoped to
+      // avoid abstract noise ("I have a question"); multi-value (each distinct possession is kept).
+      if ((m = c.match(/\bi\s+have\s+((?:a|an|one|two|three|four|five|six|some|several|many|no|\d+)\s+.+)/i))) { facts.push("User has " + tidyFact(m[1])); otherFound = true; }
       // casual bare name — ONLY if nothing else matched this clause (so "i'm from X",
       // "i'm building X" don't also yield a name). "i'?m" matches both "i'm" and "im".
       if (!nameFound && !otherFound && (m = c.match(/\b(?:i'?m|i am)\s+([A-Za-z][\w'-]*(?:\s+[A-Za-z][\w'-]*)?)/i))) {
@@ -948,6 +952,76 @@
     return null;
   }
 
+  /* -- Memory supersession + forget (Art. 2 hardening) ------------------------------
+     The app stores memories as a plain string list with no supersession, so a changed
+     fact ("I moved to Seattle") used to leave the stale one live ("Denver") and recall
+     returned the OLDER one. factSlot maps a stored fact to its slot; SINGLE-value slots
+     (name/location/job/building/favorite:<thing>) are REPLACED on a new value, while
+     MULTI-value slots (likes/has) accumulate. reconcileMemories applies one user turn:
+     a forget command removes the targeted slot/facts; otherwise new facts are captured
+     and any superseded same-slot fact is dropped. Deterministic, model-free. --------- */
+  function factSlot(content) {
+    var c = String(content || "").toLowerCase().replace(/[.?!]+$/, "");
+    if (/^user('?s)? name is\b/.test(c)) return "name";
+    if (/^user (lives in|is from)\b/.test(c)) return "location";
+    if (/^user works (at|as)\b/.test(c)) return "job";
+    if (/^user (builds|makes|creates|is working on)\b/.test(c)) return "building";
+    var m = c.match(/^user('?s)? favou?rite\s+([a-z]+)\b/);
+    if (m) return "favorite:" + m[2];
+    if (/^user (likes|loves|enjoys|prefers)\b/.test(c)) return "likes";   // multi-value
+    if (/^user has\b/.test(c)) return "has";                              // multi-value
+    return null;
+  }
+  function isSingleSlot(slot) { return !!slot && (slot === "name" || slot === "location" || slot === "job" || slot === "building" || slot.indexOf("favorite:") === 0); }
+  // Map a forget TARGET phrase ("favorite color", "my name", "where I live") to a slot.
+  function targetSlot(target) {
+    var t = String(target || "").toLowerCase();
+    var m = t.match(/favou?rite\s+([a-z]+)/); if (m) return "favorite:" + m[1];
+    if (/\bname\b/.test(t)) return "name";
+    if (/\b(location|address|city|hometown|home|where i live|where i'm from)\b/.test(t)) return "location";
+    if (/\b(job|work|occupation|profession)\b/.test(t)) return "job";
+    return null;
+  }
+  function isForgetCommand(text) {
+    var t = String(text || "");
+    if (!/^\s*(?:please\s+)?(?:forget|delete|erase|remove)\b/i.test(t)) return null;
+    if (/\b(everything|all of it|it all|all my (memories|facts)|all of my (memories|facts))\b/i.test(t)) return { all: true };
+    var m = t.match(/^\s*(?:please\s+)?(?:forget|delete|erase|remove)\s+(?:that\s+)?(?:you\s+know\s+)?(?:about\s+)?(?:my\s+|the\s+)?(.+)/i);
+    if (!m) return null;
+    var tgt = m[1].replace(/[.?!]+$/, "").trim();
+    return tgt ? { target: tgt } : null;
+  }
+  // Apply one user turn to the memory list. Returns { memories, added, removed, forgot }.
+  function reconcileMemories(memories, userText) {
+    var mems = (memories || []).slice(), added = [], removed = [];
+    var fg = isForgetCommand(userText);
+    if (fg) {
+      if (fg.all) return { memories: [], added: [], removed: mems.slice(), forgot: true };
+      var tslot = targetSlot(fg.target);
+      var twords = String(fg.target).toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(function (w) { return w.length > 2 && !REL_STOP[w]; });
+      var keep = [];
+      for (var i = 0; i < mems.length; i++) {
+        var s = factSlot(mems[i]), lc = mems[i].toLowerCase();
+        var hit = (tslot && s === tslot) || (twords.length && twords.every(function (w) { return lc.indexOf(w) >= 0; }));
+        if (hit) removed.push(mems[i]); else keep.push(mems[i]);
+      }
+      return { memories: keep, added: [], removed: removed, forgot: true };
+    }
+    var facts = extractFacts(userText);
+    for (var j = 0; j < facts.length; j++) {
+      var f = facts[j];
+      if (!f || f.length < 5 || f.length > 140) continue;
+      var norm = f.toLowerCase();
+      if (mems.some(function (x) { return x.toLowerCase() === norm; })) continue;   // exact dup
+      var slot = factSlot(f);
+      if (isSingleSlot(slot)) {
+        mems = mems.filter(function (x) { if (factSlot(x) === slot) { removed.push(x); return false; } return true; });
+      }
+      mems.push(f); added.push(f);
+    }
+    return { memories: mems, added: added, removed: removed, forgot: false };
+  }
+
   function identityAnswer(q, persona) {
     var id = SYSTEM_IDENTITY, base;
     if (/\bare you (chatgpt|gpt|claude|gemini)\b/i.test(q)) base = "No — I'm not ChatGPT or any cloud model. I'm " + id.name_default + ", the private AI running offline on this device.";
@@ -1049,6 +1123,8 @@
     // FLAG_ROUTER — Response Quality Layer v1 (deterministic dispatcher)
     routeQuery: routeQuery, detectIntent: detectIntent, solveMath: solveMath, isSimpleMath: isSimpleMath,
     isMemoryQuery: isMemoryQuery, isCapabilityQuery: isCapabilityQuery, recallMemory: recallMemory,
+    // Memory supersession + forget (Art. 2 hardening)
+    factSlot: factSlot, isForgetCommand: isForgetCommand, reconcileMemories: reconcileMemories,
     identityAnswer: identityAnswer, capabilityAnswer: capabilityAnswer, cleanModelOutput: cleanModelOutput,
     fallbackPrompt: fallbackPrompt, userFactToSecondPerson: userFactToSecondPerson,
     // Art 6
