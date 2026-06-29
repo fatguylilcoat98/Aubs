@@ -17,7 +17,9 @@
     window.AUBS_GEL = {
       evaluate: window.AUBS_GEL_EVALUATE && window.AUBS_GEL_EVALUATE.evaluate,
       validateBundle: window.AUBS_GEL_EVALUATE && window.AUBS_GEL_EVALUATE.validateBundle,
-      simulate: window.AUBS_GEL_SIMULATOR && window.AUBS_GEL_SIMULATOR.simulate
+      bundleHash: window.AUBS_GEL_EVALUATE && window.AUBS_GEL_EVALUATE.bundleHash,
+      simulate: window.AUBS_GEL_SIMULATOR && window.AUBS_GEL_SIMULATOR.simulate,
+      defaultBundle: window.AUBS_GEL_DEFAULT_BUNDLE   // injected by core/browser-assets.js
     };
   }
 })();
