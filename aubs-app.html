@@ -374,6 +374,11 @@ if(SPINE && SPINE.FLAGS){
     if(qp.get('router')==='0') SPINE.FLAGS.FLAG_ROUTER=false;
     // Milestone 0: tamper-evident ledger. OFF by default → zero change to AUBS behavior.
     if(qp.get('ledger')==='1'||localStorage.getItem('aubs_ledger')==='1') SPINE.FLAGS.FLAG_LEDGER=true;
+    // Verified Grounding v2 (CANDIDATE Article 3a amendment) — dev/device evidence route.
+    // Default OFF; enable per-session with ?gv2=1 (or aubs_gv2=1). Flag-off = byte-identical.
+    if(qp.get('gv2')==='1'||localStorage.getItem('aubs_gv2')==='1') SPINE.FLAGS.FLAG_SPINE_GROUNDING_V2=true;
+    if(qp.get('gv2')==='0'){ SPINE.FLAGS.FLAG_SPINE_GROUNDING_V2=false; try{ localStorage.removeItem('aubs_gv2'); }catch(_){} }
+    if(qp.get('gv2')==='1'){ try{ localStorage.setItem('aubs_gv2','1'); }catch(_){} }
   }catch(e){}
 }
 
@@ -992,7 +997,7 @@ function logProvenanceFor(query, answer, sentMsgs, t0, aiWrap, routed){
     const live=SPINE.liveEntries(entries);
     const idsInPrompt=live.map(e=>e.id);
     const meta=SPINE.buildPromptMeta(sentMsgs, idsInPrompt);
-    let tag, cited, groundingSource, source='model';
+    let tag, cited, groundingSource, source='model', groundingStrength=null;
     if(routed && routed.handled){
       // Router answer — tag/source come from the deterministic handler, honestly.
       // A router memory recall IS grounded (the answer is the user_verified memory),
@@ -1004,6 +1009,7 @@ function logProvenanceFor(query, answer, sentMsgs, t0, aiWrap, routed){
       // Checkpoint 0.6: grounding requires RELEVANCE; tolerantFormat accepts [m_x].
       let r=SPINE.tagAnswer({ answer, query, memory_ids_in_prompt:idsInPrompt, entries, classification:cls, tolerantFormat:true });
       tag=r.tag; cited=r.memory_ids_cited;
+      groundingStrength = r.grounding_strength || null;              // v2 (candidate): tier, null when flag off
       groundingSource = (tag==='grounded') ? 'model_cited' : null;   // Article 3a (law): model emitted [ID:x]
       // CANDIDATE amendment (FLAG_SPINE_VERIFIED_GROUNDING, default OFF).
       if(tag==='inferred' && SPINE.FLAGS && SPINE.FLAGS.FLAG_SPINE_VERIFIED_GROUNDING && SPINE.verifyGrounding){
@@ -1016,7 +1022,7 @@ function logProvenanceFor(query, answer, sentMsgs, t0, aiWrap, routed){
     const prov=SPINE.makeProvenance({
       query, timestamp:(typeof Date!=='undefined'?Date.now():0),
       prompt_hash:meta.prompt_hash, memory_ids_in_prompt:idsInPrompt, memory_ids_cited:cited,
-      tag, grounding_source:groundingSource, tier_used:(currentTier==='fast'?'low':'mid'), flags_active:SPINE.activeFlags(),
+      tag, grounding_source:groundingSource, grounding_strength:groundingStrength, tier_used:(currentTier==='fast'?'low':'mid'), flags_active:SPINE.activeFlags(),
       source_of_answer:source, latency_ms:Math.round(latency)
     });
     SPINE.logProvenance(prov);

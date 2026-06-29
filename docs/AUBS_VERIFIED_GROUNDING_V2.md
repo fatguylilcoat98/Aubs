@@ -88,6 +88,81 @@ explainability · no regressions.**
 
 ---
 
+## 5. Device-Evidence / Replay Validation Pass
+
+`tests/run-grounding-v2-evidence.cjs` replays **every available grounding/citation fixture** (the
+relevance golden set, the verifyGrounding cases given their citation, the citation golden set with
+both generic and value-stating answer variants, and the same-slot/no-query adversarial cases)
+through `tagAnswer` under **v1 (flag OFF)** and **v2 (flag ON)**, then classifies each tag change.
+This *is* the M7 replay idea applied to grounding: the same answers, re-judged under both policies,
+deterministically.
+
+### Ratification report (deterministic, reproducible)
+| metric | count |
+|---|---|
+| Cases tested | **32** |
+| Unchanged | 22 |
+| Changed (all downgrades; **0 upgrades**) | 10 |
+| **False groundings PREVENTED** (precision ↑) | **6** |
+| Valid groundings LOST | 4 |
+| — acceptable (answer value-absent) | 4 |
+| — **HARMFUL (value-stating, wrongly lost)** | **0** |
+| Unexpected regressions | **0** |
+
+### Classification of every change
+- **Precision improvements (6) — false groundings v2 prevents that v1 allowed:** the **negation
+  trap** ("your name is **not** Chris" + correct citation), a **value-omitted** answer, an
+  **irrelevant-memory citation** (REL:R5), a **conflict/ambiguous** citation (coffee loves/hates),
+  the **same-slot cross-citation** (favorite-color query citing the favorite-food memory), and the
+  **no-query** case. All are answers that should never have grounded; v1 grounded them on citation
+  validity alone.
+- **Acceptable conservative downgrades (4):** the citation-set `correct_generic` cases — a *correct,
+  relevant* citation whose **answer text does not state the value** ("Here is the answer. [ID:x]").
+  v2 downgrades these `grounded → inferred` (`topic_relevant`). The matching **`correct_value`
+  variants stayed `grounded`** — proving the recall cost falls *only* on answers that don't state
+  the value, never on ones that do.
+- **Harmful false downgrades: 0.** No value-stating correct grounding was lost.
+- **Unexpected regressions: 0.** Article 2 (conflict) and Article 12 (identity) invariants hold; no
+  case wrongly upgraded.
+
+The harness exits non-zero on any harmful downgrade or regression, so this safety property is
+**CI-enforced** while v2 remains candidate-only.
+
+### Dev/device route (task 5)
+`?gv2=1` (or `localStorage.aubs_gv2=1`) enables the candidate per-session in the app; `?gv2=0`
+clears it. Default OFF → byte-identical. The live provenance now carries `grounding_strength` (null
+when the flag is off), so the on-device Glass Box can show the tier during a real-model dogfood.
+**No default behavior changed.**
+
+---
+
+## Final recommendation
+
+**Should Article 3a v2 be ratified?** — **Yes, ratify the mechanism (Layers 1–3).** The replay
+evidence is unambiguous: v2 prevents 6 demonstrable false groundings (including the negation trap and
+the same-slot hole that v1 cannot catch), with **zero** harmful downgrades and **zero** regressions,
+deterministically and without any learned component.
+
+**Should it become default ON?** — **Not yet.** Flip the spine default to ON only after a short
+**real-device dogfood via `?gv2=1`** confirms the on-device model states values often enough that the
+recall cost stays where the evidence shows it (value-absent answers only). The route and the
+`grounding_strength` provenance now exist precisely to gather that evidence. The synthetic pass
+already shows the cost is bounded and benign; the device pass confirms the *rate* in practice.
+
+**Should it remain candidate-only?** — **No** — promote the *mechanism* from candidate to ratified
+Article 3a ("id verified **AND** value-verified relevance"), but **stage the default**: keep the flag,
+default OFF until the device dogfood, then default ON by a follow-up amendment. This is the Amendment
+Lifecycle working as designed — ratify on proof, flip the default on device evidence.
+
+**What evidence supports this?** — The 32-case deterministic v1-vs-v2 replay above: **6 false
+groundings prevented, 4 acceptable (all value-absent) downgrades, 0 harmful, 0 regressions, every
+value-stating grounding preserved** — plus 16/16 adversarial assertions and a fully green 23-suite
+regression. Because every grounding decision is deterministic and the tier is recorded, this exact
+judgement can be re-run against any historical DecisionRecord, so the council can verify the claim
+rather than trust it.
+
+---
+
 ## Files
 **Modified** — `spine/spine.js` (flag + `extractQueryObject` + `disambiguate` path + v2 `tagAnswer`
 branch + `groundingStrength` + `grounding_strength` in `makeProvenance` + exports),
