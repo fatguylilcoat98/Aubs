@@ -123,7 +123,7 @@ body{background:var(--void);color:var(--ink);font-family:var(--font-body);
 <main id="landing">
   <div class="poster">
     <img src="aubs-landing-art.png" alt="AUBS — Private. Offline. Yours." width="853" height="1844" decoding="async" fetchpriority="high" draggable="false" />
-    <button class="enter-hot" onclick="window.location.href='aubs-app.html'" aria-label="Enter AUBS"></button>
+    <button class="enter-hot" onclick="window.location.href='aubs-app.html'+location.search" aria-label="Enter AUBS"></button>
   </div>
 </main>
 
@@ -179,7 +179,9 @@ body{background:var(--void);color:var(--ink);font-family:var(--font-body);
 </section>
 
 <script>
-function enterApp(){ window.location.href='aubs-app.html'; }
+// Preserve the query string (?spine=1&facts=1&trust=1&identity=1) into the app — the landing
+// page must NOT strip flags, or the app loads flags-OFF (byte-identical old behavior).
+function enterApp(){ window.location.href='aubs-app.html'+location.search; }
 function mockDownload(btn){
   if(btn.disabled) return;
   btn.disabled=true;
