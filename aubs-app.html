@@ -1004,7 +1004,12 @@ window.send=async function(){
     } else
     if(routed && routed.handled){
       // Deterministic route — NO model call. Identity/math/memory/capability/greeting/unsafe.
-      full=routed.answer; finish="router:"+routed.intent; bubble.textContent=full;
+      // Safety net: guard ANY router-owned identity claim against the resolved identity (a greeting
+      // must say the resolved assistant name, never a stale "AUBS"). identityGuard rewrites only
+      // identity claims; ordinary router text is untouched, so default config is byte-identical.
+      const _ri=governedFactResolved();
+      full=(_ri && SPINE.identityGuard)?SPINE.identityGuard(routed.answer,_ri):routed.answer;
+      finish="router:"+routed.intent; bubble.textContent=full;
       history.push({role:"assistant",content:full});
       saveHistory(history.slice(1));
       captureMemories(text);                          // statements can still seed memory

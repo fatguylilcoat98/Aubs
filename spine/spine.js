@@ -980,7 +980,10 @@
   function greetingAnswer(persona, style, entries) {
     var live = liveEntries(entries || []), name = null;
     for (var i = 0; i < live.length; i++) { var m = live[i].content.match(/^User's name is (.+?)[.?!]?$/i); if (m) { name = m[1]; break; } }
-    return styleWrap("Hey" + (name ? (", " + name) : "") + "! I'm " + SYSTEM_IDENTITY.name_default + ", here and ready. What's up?", style, "greeting");
+    // The greeting embeds an identity claim — it must use the resolved assistant name (persona),
+    // never a hard-coded "AUBS". Falls back to AUBS only when no name is declared (bare OS).
+    var who = (persona && String(persona).trim()) ? String(persona).trim() : SYSTEM_IDENTITY.name_default;
+    return styleWrap("Hey" + (name ? (", " + name) : "") + "! I'm " + who + ", here and ready. What's up?", style, "greeting");
   }
 
   /* Narrow output cleanup for MODEL answers only. Removes false self-identity / boilerplate
