@@ -1,3 +1,5 @@
+<!-- Archived: superseded by the AUBS M0–M13 constitutional runtime stack. -->
+
 # AUBS Conversation Controller — Complete Documentation
 
 ## Overview

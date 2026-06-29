@@ -1,3 +1,5 @@
+<!-- Archived: superseded by the AUBS M0–M13 constitutional runtime stack. -->
+
 # AUBS SYSTEM AUDIT — Complete Architecture Overview
 
 **As of Section 6 completion, June 27, 2026**
