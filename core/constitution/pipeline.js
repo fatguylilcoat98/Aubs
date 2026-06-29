@@ -27,6 +27,7 @@
   var REPLAY  = isNode ? require("../replay") : (typeof window !== "undefined" ? window.AUBS_REPLAY : null);
   var KEXPL   = isNode ? require("../kernel/explanation") : (typeof window !== "undefined" ? window.AUBS_KERNEL_EXPLANATION : null);
   var SPINE   = isNode ? require("../../spine/spine.js") : (typeof window !== "undefined" ? window.AUBS_SPINE : null);
+  var GATE    = isNode ? require("../facts/gate") : (typeof window !== "undefined" ? window.AUBS_FACT_GATE : null);
 
   function spineEntries(memories) {
     return (memories || []).map(function (m) { return { id: m.memory_id, content: m.content, user_verified: true, superseded_by: null }; });
@@ -106,12 +107,72 @@
     step("GEL", state.governance.decision);
     if (state.governance.decision !== "allow") return finishBlocked("GEL", "policy_" + state.governance.decision, false);
 
-    // 4b) Unified Identity Governance — deterministic identity routes, model called 0×.
+    // 4a) GOVERNED-FACT REGISTRY — the FIRST pre-model owner (Invariant I), behind
+    // FLAG_GOVERNED_FACTS. The registry has first refusal over EVERY governed fact:
+    // creator/capabilities/version/identity (identity delegated to the spine's one
+    // router). identityRoute is reachable only THROUGH this gate, so it can never be
+    // the first handler and can never over-capture creator/capability questions.
+    // user_profile is deferred to the memory stage (excluded here). When this fires,
+    // the model is called 0×. OFF → skipped entirely (byte-identical; 4b runs instead).
+    var governedFacts = (options.governedFacts !== undefined) ? !!options.governedFacts
+                      : !!(SPINE && SPINE.FLAGS && SPINE.FLAGS.FLAG_GOVERNED_FACTS);
+    if (governedFacts && GATE) {
+      var gResolved = (SPINE && SPINE.resolveRuntimeIdentity)
+        ? SPINE.resolveRuntimeIdentity(options.identityConfig || { assistantName: options.userPersonaName || null, userName: options.userName || null }, appIdentity)
+        : null;
+      state.resolvedIdentity = gResolved;
+      var gres = GATE.governedFactGate(request.user_text || "", {
+        resolved: gResolved, runtime: options.runtime || null, entries: [], exclude: ["user_profile"], enabled: true
+      });
+      if (gres.handled) {
+        var GRI = gResolved || {};
+        var isIdentityFact = gres.factId && gres.factId.indexOf("identity:") === 0;
+        var gContract = CAC.builders.buildExecutionContract({
+          intent_id: state.intent.intent_id, user_intent: request.user_text || "",
+          app_identity: { assistant_name: GRI.assistantDisplayName || "AUBS", persona_ref: GRI.personaRef || "aubs-default", app_id: GRI.appId || "aubs" },
+          allowed_provider: null,
+          verdict: { decision: state.governance.decision, winning_rule: state.governance.winning_rule, policy_bundle_hash: state.governance.policy_bundle_hash },
+          output_constraints: { must_not_claim_identity: true },
+          safety_classification: "normal", egress_boundary: "none",
+          replay_metadata: { policy_version: state.governance.policy_bundle_hash }
+        });
+        state.execution_contract = gContract;
+        state.output_text = gres.answer; state.grounding = { tag: "general", grounding_strength: null }; state.status = "ok";
+        step("GovernedFact", gres.factId + " (" + gres.owner + ")");
+        await writeRecord({
+          input: request.user_text || "", output: gres.answer, execution_type: "governed_fact",
+          model_id: "none", provider: "governed_fact", memory_refs: [], policy_version: state.governance.policy_bundle_hash,
+          explanation: {
+            decision: state.governance.decision, winning_rule: state.governance.winning_rule, status: "ok", kind: "executed",
+            left_device: false, fact_id: gres.factId, fact_owner: gres.owner, model_called: false,
+            assistant_name: GRI.assistantDisplayName || "AUBS", assistant_name_source: GRI.assistantNameSource || "default",
+            product_name: GRI.productName || "AUBS", execution_contract_id: gContract.contract_id,
+            grounding_tag: "general", grounding_strength: null, planner_graph_hash: state.graph_hash
+          }
+        });
+        step("DecisionRecord", state.record ? state.record.id : "(no store)");
+        step("Ledger", state.record ? "appended seq " + state.record.seq : "n/a");
+        if (state.record) {
+          state.evidence = REPLAY.captureDecision({ intent: state.intent, plan: state.plan, governance: state.governance, record: state.record, result: { provider_id: null, output_text: gres.answer } }, { policyBundle: bundle, registry: options.providerRegistry });
+          step("Replay", "evidence captured");
+        }
+        state.governed_fact = { fact_id: gres.factId, owner: gres.owner, model_called: false };
+        // keep the identity surface for identity-kind facts (so the UI "Why?" still works)
+        if (isIdentityFact) state.identity = { source: GRI.assistantNameSource || "default", kind: gres.factId.slice("identity:".length), assistant_name: GRI.assistantDisplayName || "AUBS", assistant_name_source: GRI.assistantNameSource || "default", app_id: GRI.appId || "aubs", model_called: false };
+        state.explanation = "Answered from a runtime-owned governed fact (" + gres.factId + "). Model was not called.";
+        step("Explanation", state.explanation);
+        return state;
+      }
+      // not a governed fact → open-ended; fall through to the model. The legacy 4b
+      // identity stage is SKIPPED (the registry already had first refusal over identity).
+    }
+
+    // 4b) Unified Identity Governance (LEGACY path — runs ONLY when FLAG_GOVERNED_FACTS is OFF,
+    // so it is byte-identical to pre-A2). Deterministic identity routes, model called 0×.
     // ONE resolved identity object (assistant name by precedence app>user>default · AUBS runtime ·
     // canonical acronym) drives all five governed answers (who are you · your name · introduce ·
-    // what does AUBS stand for · what's my name). The provider/model is NEVER reached for these, so
-    // it can never originate or confabulate identity. Gated by FLAG_IDENTITY_V2 (OFF → not built).
-    var resolvedIdentity = (identityV2 && SPINE && SPINE.resolveRuntimeIdentity)
+    // what does AUBS stand for · what's my name). Gated by FLAG_IDENTITY_V2 (OFF → not built).
+    var resolvedIdentity = (!governedFacts && identityV2 && SPINE && SPINE.resolveRuntimeIdentity)
       ? SPINE.resolveRuntimeIdentity(options.identityConfig || { assistantName: options.userPersonaName || null, userName: options.userName || null }, appIdentity)
       : null;
     state.resolvedIdentity = resolvedIdentity;

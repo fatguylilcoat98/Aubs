@@ -93,6 +93,10 @@
       // falls back to AUBS. identityV2 / FLAG_IDENTITY_V2 default OFF (byte-identical when off).
       appIdentity: opts.appIdentity || null,
       identityV2: opts.identityV2,
+      // A2 — governed-fact registry as the first pre-model owner (Invariant I).
+      // Default reads FLAG_GOVERNED_FACTS in the pipeline; runtime carries version/creator metadata.
+      governedFacts: opts.governedFacts,
+      runtime: opts.runtime || null,
       // Unified Identity: the resolver reads this config (assistant name / user name / style).
       identityConfig: opts.identityConfig || null,
       userPersonaName: opts.userPersonaName || null,

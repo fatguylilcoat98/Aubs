@@ -403,6 +403,12 @@ body{background:var(--bgbase);color:var(--ink);font-family:var(--font-body);
 <script src="core/replay/index.js"></script>
 <script src="core/constitution/explain.js"></script>
 <script src="core/constitution/graph.js"></script>
+<!-- Migration A1/A2 — governed-fact registry + classifier + gate + device-bundle trust.
+     Load after the spine (deps) and BEFORE pipeline.js (which uses window.AUBS_FACT_GATE). -->
+<script src="core/facts/registry.js"></script>
+<script src="core/facts/classifier.js"></script>
+<script src="core/facts/gate.js"></script>
+<script src="core/facts/bundle.js"></script>
 <script src="core/constitution/pipeline.js"></script>
 <script src="core/constitution/audit.js"></script>
 <script src="core/constitution/index.js"></script>
@@ -496,6 +502,28 @@ function resolvedIdentity(){
   try{ return SPINE.resolveRuntimeIdentity(identityConfig(), appIdentity()); }catch(e){ return null; }
 }
 function displayAssistantName(){ const r=resolvedIdentity(); return (r&&r.assistantDisplayName) ? r.assistantDisplayName : ((S&&S.aiName)||"AUBS"); }
+
+/* ── Migration A2 — FLAG_GOVERNED_FACTS (default OFF) ───────────────────────────────
+   When ON, the governed-fact registry is the FIRST pre-model owner: it answers every
+   governed fact (identity/creator/capabilities/version) from runtime-owned state with the
+   model called 0×, BEFORE the router and the model. identityRoute is reachable only through
+   the registry, so it can never be the first handler nor over-capture creator/capability
+   questions. OFF → none of it runs; the turn flows to the router/model exactly as today
+   (byte-identical). Enable per-session: ?facts=1 (or aubs_facts=1). */
+let FLAG_GOVERNED_FACTS=false;
+try{
+  const qp=new URLSearchParams(location.search);
+  if(qp.get('facts')==='1'||localStorage.getItem('aubs_facts')==='1') FLAG_GOVERNED_FACTS=true;
+  if(qp.get('facts')==='0'){ FLAG_GOVERNED_FACTS=false; try{ localStorage.removeItem('aubs_facts'); }catch(_){} }
+  if(qp.get('facts')==='1'){ try{ localStorage.setItem('aubs_facts','1'); }catch(_){} }
+  if(typeof SPINE!=="undefined"&&SPINE&&SPINE.FLAGS) SPINE.FLAGS.FLAG_GOVERNED_FACTS=FLAG_GOVERNED_FACTS;
+}catch(e){}
+function governedFactsOn(){ return !!(FLAG_GOVERNED_FACTS && typeof window!=="undefined" && window.AUBS_FACT_GATE && window.AUBS_FACT_GATE.governedFactGate); }
+function aubsRuntimeMeta(){ return { version:(typeof SPINE!=="undefined"&&SPINE)?SPINE.SPINE_VERSION:null, creator:null }; }
+// The registry needs the resolved identity whenever governed-facts is on (independent of FLAG_IDENTITY_V2).
+function governedFactResolved(){
+  try{ return (typeof SPINE!=="undefined"&&SPINE&&SPINE.resolveRuntimeIdentity)?SPINE.resolveRuntimeIdentity(identityConfig(), appIdentity()):null; }catch(e){ return null; }
+}
 
 /* ── Milestone 0 — Ledger wiring (additive, behind FLAG_LEDGER) ──────────────────
    When ON, every provenance record is ALSO appended to a real append-only, hash-chained,
@@ -946,6 +974,9 @@ window.send=async function(){
   const routerOn=!!(SPINE&&SPINE.FLAGS&&SPINE.FLAGS.FLAG_ROUTER);
   const routerEntries=(SPINE&&SPINE.adaptMemories)?SPINE.adaptMemories(memories):[];
   const routed=(!gate.blocked && routerOn&&SPINE.routeQuery)?SPINE.routeQuery(text,{ entries:routerEntries, persona:S.aiName, instructions:S.instructions }):null;
+  // A2 — GOVERNED-FACT REGISTRY: the FIRST pre-model owner. Computed before the model; the
+  // gf branch below is checked before the router so the registry has first refusal over identity.
+  const gf=(!gate.blocked && governedFactsOn())?window.AUBS_FACT_GATE.governedFactGate(text,{ resolved:governedFactResolved(), runtime:aubsRuntimeMeta(), exclude:["user_profile"], enabled:true }):{handled:false};
   const RECOVERABLE=/GPUBuffer|mapAsync|unmapped|device is lost|Device is lost|disposed|not loaded|reload\(/i;
   try{
     if(gate.blocked){
@@ -960,6 +991,15 @@ window.send=async function(){
       // in that moment does not need a provenance chip; attachWhy renders nothing for tag 'safety').
       const provText=isCrisis?"[redacted: self-harm safety response]":text;
       logProvenanceFor(provText, full, [history[0],{role:"user",content:provText}], t0, aiWrap, { handled:true, intent:gate.reason, source_of_answer:"rule", tag:isCrisis?"safety":"unknown", memory_ids_cited:[], grounding_source:null });
+    } else
+    if(gf.handled){
+      // GOVERNED-FACT REGISTRY (A2) — the FIRST pre-model owner. Answer the governed fact from
+      // runtime-owned state; the model is called 0×. Runs before the router and the model.
+      full=gf.answer; finish="governed:"+gf.factId; bubble.textContent=full;
+      history.push({role:"assistant",content:full});
+      saveHistory(history.slice(1));
+      captureMemories(text);
+      logProvenanceFor(text, full, [history[0],{role:"user",content:text}], t0, aiWrap, { handled:true, intent:"governed:"+gf.factId, source_of_answer:"runtime_fact", tag:"general", memory_ids_cited:[], grounding_source:null });
     } else
     if(routed && routed.handled){
       // Deterministic route — NO model call. Identity/math/memory/capability/greeting/unsafe.

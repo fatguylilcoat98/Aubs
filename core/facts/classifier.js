@@ -39,8 +39,10 @@
     if (!enabled) return { type: "open_ended", reason: "flag_off" };
 
     var entries = REG.ENTRIES;
+    var exclude = ctx.exclude || null;   // entry ids a given path opts out of (e.g. pipeline defers user_profile to the memory stage)
     for (var i = 0; i < entries.length; i++) {
       var e = entries[i];
+      if (exclude && exclude.indexOf(e.id) >= 0) continue;
       var m = e.match(q, ctx);
       if (m && m.answer != null) {
         return {
