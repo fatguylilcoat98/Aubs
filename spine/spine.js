@@ -38,7 +38,8 @@
     FLAG_SPINE_VERIFIED_GROUNDING: false,// CANDIDATE Article 3a amendment (see verifyGrounding)
     FLAG_SPINE_GROUNDING_V2: false,      // CANDIDATE Article 3a amendment v2 (semantic fit: query-gated + object disambiguation + value-verified tier)
     FLAG_LEDGER: false,                  // Milestone 0: write tamper-evident DecisionRecords (spine/ledger.js)
-    FLAG_IDENTITY_V2: false              // Slice 0 CANDIDATE Article 12 v2: identity is APP-declared + OS-owned, never model-originated
+    FLAG_IDENTITY_V2: false,             // Slice 0 CANDIDATE Article 12 v2: identity is APP-declared + OS-owned, never model-originated
+    FLAG_GOVERNED_FACTS: false           // Migration A1: governed-fact registry + classifier (core/facts/*). Default OFF = byte-identical (every turn routes to the model).
   };
   function activeFlags() {
     return Object.keys(FLAGS).filter(function (k) { return FLAGS[k] === true; });
