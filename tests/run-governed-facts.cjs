@@ -28,6 +28,25 @@ const on = (over) => Object.assign({ resolved: TOM, enabled: true }, over);
   t("flag OFF: explicit enabled:false also open_ended", C.classify("What's your name?", { resolved: TOM, enabled: false }).type === "open_ended");
 }
 
+// ── OWNERSHIP MATRIX (reviewer requirement) — the correct owner answers each, model 0× ─────
+// The broad spine identity detector must NOT over-capture creator/capability questions.
+{
+  const own = (q) => { const r = C.classify(q, on()); return { id: r.factId, type: r.type, mc: r.model_called }; };
+  const isIdentity = (q) => own(q).id && own(q).id.indexOf("identity:") === 0;
+
+  t("'What's your name?' → identity", isIdentity("What's your name?"));
+  t("'Who are you?' → identity (NOT creator)", isIdentity("Who are you?") && own("Who are you?").id !== "creator");
+  t("'Who made you?' → creator (NOT identity)", own("Who made you?").id === "creator");
+  t("'Who created you?' → creator", own("Who created you?").id === "creator");
+  t("'What can you do?' → capabilities (NOT identity)", own("What can you do?").id === "capabilities");
+  t("'What are your capabilities?' → capabilities", own("What are your capabilities?").id === "capabilities");
+  t("'What does AUBS stand for?' → identity:acronym", own("What does AUBS stand for?").id === "identity:acronym");
+  // every owner answers from owned state — no model call on any matrix row
+  t("ownership matrix: every governed answer is model 0×",
+    ["What's your name?","Who are you?","Who made you?","Who created you?","What can you do?","What are your capabilities?","What does AUBS stand for?"]
+      .every(q => own(q).mc === false && own(q).type === "governed_fact"));
+}
+
 // ── IDENTITY rows — delegated to the spine, model 0× ──────────────────────────────────────
 {
   const name = C.classify("What's your name?", on());
