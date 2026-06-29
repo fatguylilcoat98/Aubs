@@ -42,29 +42,32 @@ Truth · Safety · We Got Your Back
 
 ---
 
-## Decision Gate 0 — Settle the authority boundary (blocking, no code)
+## Decision Gate 0 — Authority boundary — ✅ RESOLVED
 
-`[Corrected understanding]` The architecture doc says "CLASPION is the one authority," and §7 says the AUBS surface "calls CLASPION-authored bundles locally; full CLASPION server-side." But AUBS has its **own** policy engine, GEL, with its **own** precedence model (`regulatory > org > group > user > default`, `evaluate.js`). **If GEL invents policy independently while CLASPION also defines policy, that is two authorities — the exact regression, rebuilt.**
+`[Signed June 29, 2026]` See `docs/AUBS_DECISION_GATE_0_BUNDLE_CONTRACT.md` (closed). The boundary is settled:
 
-The plan assumes, and asks you to confirm, this resolution:
+> **CLASPION is the sole policy *author* and change authority. GEL is the local *enforcement surface* that executes a CLASPION-compiled, signed device bundle — it never originates policy.** The two engines are *different policy languages* (CLASPION: risk-tier/evidence-trust/approval; GEL: egress/data-class/precedence), so the bridge is a deterministic **compile-projection** of the device-enforceable subset, not a shared bundle.
 
-> **CLASPION is the policy *author* and server-side authority. GEL is the local *enforcement surface* that executes CLASPION-authored bundles — it never originates policy of its own.** GEL's precedence engine is the *mechanism*; the *rules* come from CLASPION bundles. Locally (on-device, offline) GEL enforces the last-synced bundle; online, full CLASPION is authoritative.
+Signed rulings that bind this plan:
+- **Minimal offline posture:** rich checks (multi-sig, evidence) stay server-only; offline-unenforceable actions **deny-pending-online**, never silent-allow.
+- **Bundle signing is a new trust root** (today's Ed25519 signs grants, not bundles). It carries a named deliverable: a **tamper test suite** (tampered/expired/untrusted/downgraded bundle → fail closed) that must be green before any signing code lands. Folded into A2/A3.
+- **`T_fresh` = 24h default, tightenable per risk tier** — carried in the bundle, GEL honors the tightest applicable window.
+- **Invariant to protect:** governed-fact answers never couple to bundle availability (so an outage can't refuse "hello").
 
-This must be nailed before Phase A1, because the registry and gate both depend on knowing where a verdict's rules come from. Output of this gate: a one-page **bundle contract** — bundle format, who authors, how GEL loads/refreshes them, and what happens when the bundle source is unreachable (feeds Invariant II). **No code until this is signed.**
-
-*(If you instead want GEL to be the authority and CLASPION to be a federated peer, that is a legitimate but different architecture — and the doc would need a third correction. Flagging so the choice is explicit, not assumed.)*
+A1 is unblocked.
 
 ---
 
 ## 1. Sequencing at a glance
 
 ```
-Decision Gate 0  ── authority boundary (GEL = enforcement, CLASPION = author) ──┐
-                                                                                 │ blocks
+Decision Gate 0  ── authority boundary ── ✅ SIGNED (Minimal; 24h tier-tightenable) ──┐
+                                                                                 │ UNBLOCKED
 TRACK A — AUBS (primary: wire the gate that exists)                              ▼
   A1  Generalize identity → governed-fact registry + classifier   [FLAG_GOVERNED_FACTS]
   A2  Wire the One Spine into the live chat path                   [FLAG_CONSTITUTION_CHAT]
        └─ mount classifier on EVERY entry path  ........ Invariant I
+       └─ device-bundle load: verify signature + freshness, fail closed (+ tamper test)
   A3  Single fail-mode owner                                       Invariant II
   A4  Prove §8 on the 0.5B (governed answers + both invariants)
   A5  Swap to a larger model; prove §8 again → thesis demonstrated
@@ -97,8 +100,9 @@ Track A and Track B are independent and can run in parallel. Track A is where th
 
 - **Change:** the live chat entry (the app's WebLLM call site) routes through `core/constitution/chat.js runConstitutionalChat()` behind `FLAG_CONSTITUTION_CHAT` (the existing `?spine=1` gate). The model is *injected* as the `local-webllm` provider the pipeline already wraps (`chat.js` 26–59) — no new model, no new behavior when off.
 - **Invariant I — mount the classifier on EVERY entry path:** enumerate every path that can reach the model (app chat, streaming, any CLI/test harness, any future surface). Each must call `classifier.classify()` first: governed → answer from registry (model 0×); open-ended → pipeline. Add a **path-enumeration test** that fails CI if a new model-reaching path is added without routing through the classifier. *This is Cause #1 made structurally impossible.*
+- **Device-bundle load (per Gate 0 contract §5):** before GEL evaluates, verify the bundle's Ed25519 signature, freshness (`T_fresh` per tier), and version (no downgrade). Any failure → fail closed (last-good within window, else structural-invariants-only). Ship the **tamper test suite** with this step — it is acceptance-blocking.
 - **Flag:** OFF → live app uses today's direct-WebLLM path, **byte-identical**. ON → governed turns answered by runtime, open-ended turns governed by the pipeline.
-- **Acceptance:** golden-transcript test (flag OFF == current output); with flag ON, governed facts answered without a model call (assert provider invoked 0× for governed turns).
+- **Acceptance:** golden-transcript test (flag OFF == current output); with flag ON, governed facts answered without a model call (assert provider invoked 0× for governed turns); tamper-test suite green (forged/expired/downgraded bundle → fail closed).
 
 ### A3 — Single fail-mode owner  (Invariant II)
 **Goal:** one place decides outage-vs-policy and degrade-vs-block.
@@ -154,7 +158,8 @@ These tests are the living form of the invariants. If either test is deleted or 
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| **GEL becomes a second authority** (Decision Gate 0 unresolved) | High if skipped | Block all code on the signed bundle contract; GEL never originates policy |
+| **GEL becomes a second authority** | ~~High~~ Resolved | Closed by signed Gate 0 contract; GEL never originates policy |
+| **Bundle signing = new trust root** (forged bundle subverts local enforcement) | Medium | Ed25519 sign + GEL verify; **tamper test suite acceptance-blocking** (A2); structural invariants hold even with no/invalid bundle |
 | **Wiring the live chat through the pipeline changes behavior** (A2) | Medium | Flag default OFF + golden-transcript byte-identical test; promote only after §8 passes |
 | **§8 two-model test infeasible** (0.5B is in-browser WebLLM) | Medium | A5 registers a 2nd provider via the existing drift shield; the adapter layer already supports heterogeneous providers |
 | **Registry drift from runtime metadata** (version/creator wrong) | Low | `identityGuard` generalized to validate all registry facts in output |

@@ -10,7 +10,20 @@ Truth · Safety · We Got Your Back
 **Blocks:** all of Track A and Track B in `docs/AUBS_MIGRATION_PLAN.md`
 **Companion to:** `docs/AUBS_RUNTIME_ARCHITECTURE.md` (§1, §5)
 **Author:** Claude (Lead Architect seat), AUBS Design Review Board
-**Date:** June 29, 2026 · **Status:** draft for your sign-off — no code until signed
+**Date:** June 29, 2026 · **Status:** ✅ SIGNED (Christopher Hughes, June 29, 2026) — Migration Plan A1 unblocked
+
+> ## Decision Record (signed)
+> Base of the stack verified first: `docs/AUBS_RUNTIME_ARCHITECTURE.md` at this commit is the **corrected** revision (contains §0.5 verified regression + §4.1 invariants; no uncorrected "delete the duplicates" diagnosis). The contract therefore sits on the corrected foundation.
+>
+> | # | Decision | Ruling | Authority |
+> |---|---|---|---|
+> | 1 | Authority boundary (§1) | **Approved as written** — CLASPION authors, GEL enforces, neither crosses | Christopher Hughes |
+> | 2 | Offline posture (§9) | **Minimal** — rich checks (multi-sig, evidence) stay server-only; offline-unenforceable actions fail closed / deny-pending-online. Extend only on a real, named no-connectivity high-risk use case | Christopher Hughes |
+> | 3 | Staleness `T_fresh` (§6) | **24h default, tightenable per risk tier** — a casual-chat policy and a sensitive policy must not share one staleness tolerance | Christopher Hughes |
+>
+> Two properties to hold hard through the build (called out by the signer):
+> - **Bundle signing is a new trust root** — a bad-signature bundle MUST fail closed, proven by a tamper test, not assumed (§5).
+> - **Governed facts never depend on the bundle source** — "hello" can never be refused during an outage. This is Cause #2 made structurally impossible; it is the proof the correction worked (§7). Do not let any later change couple a governed-fact answer to bundle availability.
 
 > Decision Gate 0 exists because AUBS has **two** policy engines — CLASPION (`policy/engine.py`) and GEL (`core/gel/evaluate.js`). If both originate policy, that is two authorities, which is the regression rebuilt (architecture doc §5/§0.5). This contract fixes the boundary so they can never disagree: **one authors, the other enforces.**
 
@@ -97,12 +110,13 @@ GEL offline cannot do what CLASPION's full governance does (count truth backends
 - **Sign:** CLASPION signs each compiled device bundle with Ed25519, reusing `boundary/grant_signing.py` keys and the `federation/trust_registry.py` public-key registry. Signature covers `(bundle_id, bundle_version, content_hash, issued_at, expires_at)`.
 - **Verify (GEL, before load):** signature valid against a trusted CLASPION key **and** not expired **and** `bundle_version` ≥ last-seen (no silent downgrade). Any failure → refuse to load, keep last-good (within freshness window), else structural-invariants-only mode. **Fail-closed.**
 - **Version + hash:** `bundle_version` is the authority's monotonic version; `content_hash` is GEL's `bundleHash()` for the ledger/replay record. Both travel on every DecisionRecord.
+- **Tamper test is a requirement, not an assumption** `[signer directive]`: bundle signing is a **new trust root** the whole local-enforcement story depends on. It gets the same discipline the ledger got — a test suite that feeds GEL a tampered/expired/untrusted/downgraded bundle and asserts it **fails closed every time** (refuses load, falls back to structural-invariants-only, never silently enforces a forged bundle). No signing code lands without this suite green.
 
 ## 6. Load / refresh
 
 - **Source of truth:** CLASPION server endpoint serving the latest signed device bundle for the resolved identity/org.
 - **Sync:** on app start and on a refresh interval; the device caches the last signed bundle locally (offline-first).
-- **Staleness window `T_fresh`:** how long a cached bundle is honored without a successful refresh. Within `T_fresh`: enforce normally. Past `T_fresh`: §7 degrade rules. *(Default proposal: `T_fresh` = 24h; your call.)*
+- **Staleness window `T_fresh`:** how long a cached bundle is honored without a successful refresh. Within `T_fresh`: enforce normally. Past `T_fresh`: §7 degrade rules. **`[Signed: 24h default, tightenable per risk tier]`** — `T_fresh` is **not one global number.** It is a per-risk-tier value carried in the bundle: low-risk (casual chat) tolerates a long stale window; anything sensitive refreshes aggressively or fails closed sooner. 24h is the default for the personal-use, low-risk tier only. The compiler emits a `T_fresh` per policy tier; GEL honors the tightest applicable window for the action at hand.
 
 ## 7. Fail-mode when the source is unreachable  (this IS Invariant II)
 
@@ -125,16 +139,16 @@ The governed-fact rows never depend on the bundle source — identity/name/acron
 
 ---
 
-## 9. The one open decision (needs your answer)
+## 9. The offline-posture decision — RESOLVED: Minimal
 
-Everything above assumes the **Minimal** offline posture. The genuine fork:
+**`[Signed: Minimal]`** Everything above assumes the **Minimal** offline posture, which is now the ruling. The fork, recorded for the record:
 
 - **Minimal (recommended to start):** GEL stays as-is (egress / data-class / provider / step_type). CLASPION's richer constructs (risk tier, multi-sig, evidence) are **server-only**; offline, actions needing them fail closed. Smallest change, ships fastest, honest about offline limits.
 - **Extended:** extend GEL's schema + `evaluate()` to carry `risk_tier` / `required_signatures` / `explain_back` so more is enforceable offline. Real work in GEL; warranted **only if** AUBS must fully govern high-risk actions with no connectivity.
 
-Recommendation: **ship Minimal, measure what actually needs offline high-risk enforcement, extend only if real.** Don't build the Extended schema on a hypothetical.
+Ruling: **ship Minimal, measure what actually needs offline high-risk enforcement, extend only if real.** The Extended schema is not built on a hypothetical. Rerun this gate if and when a named no-connectivity high-risk use case appears.
 
-> **Sign-off needed on three points:** (1) the §1 boundary as stated; (2) Minimal vs Extended (§9); (3) `T_fresh` staleness default (§6). With those three answered, the contract is closed and Migration Plan A1 is unblocked.
+> **All three sign-offs recorded** (see Decision Record at top): (1) §1 boundary approved; (2) §9 Minimal; (3) §6 `T_fresh` 24h tier-tightenable. The contract is **closed**; Migration Plan A1 is **unblocked.**
 
 ---
 
@@ -145,7 +159,7 @@ Once this contract is signed:
 - A2/A3 can wire the gate knowing GEL enforces a compiled artifact and one owner handles outage.
 - The architecture doc's §5/§7 are now precise: GEL is the enforcement surface, CLASPION the author, the device bundle the compiled contract between them — **one authority, never two.**
 
-**Awaiting your sign-off on §1, §9, and §6.**
+**Signed §1, §9, and §6 (June 29, 2026). Decision Gate 0 closed — A1 may begin.**
 
 ---
 
