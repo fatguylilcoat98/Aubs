@@ -1,3 +1,5 @@
+<!-- Archived: superseded by the AUBS M0–M13 constitutional runtime stack. -->
+
 # AUBS FastEngine — Complete Integration Guide
 
 ## Overview

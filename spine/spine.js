@@ -681,12 +681,48 @@
     var e = String(q || "").replace(/^\s*(what(?:'s| is)|whats|calculate|compute|how much is|solve)\s+/i, "").replace(/[?=\s]+$/, "").trim();
     return /^[-+*/×÷().\d\s]+$/.test(e) && /\d\s*[-+*/×÷]\s*\d/.test(e);
   }
+  // Deterministic recursive-descent arithmetic evaluator — NO eval, NO Function. Supports
+  // digits, decimals, whitespace, + - * / parentheses, and unary +/-. Rejects identifiers,
+  // invalid tokens, trailing junk, and division by zero (→ null). Precedence: () > unary > * / > + -.
+  function evalArith(s) {
+    var i = 0, n = s.length, error = false;
+    function ws() { while (i < n && s[i] === " ") i++; }
+    function peek() { ws(); return i < n ? s[i] : null; }
+    function expr() {
+      var v = term(); if (v === null) return null;
+      for (;;) { var c = peek(); if (c === "+" || c === "-") { i++; var r = term(); if (r === null) return null; v = (c === "+") ? v + r : v - r; } else break; }
+      return v;
+    }
+    function term() {
+      var v = factor(); if (v === null) return null;
+      for (;;) { var c = peek(); if (c === "*" || c === "/") { i++; var r = factor(); if (r === null) return null; if (c === "/") { if (r === 0) { error = true; return null; } v = v / r; } else v = v * r; } else break; }
+      return v;
+    }
+    function factor() {
+      var c = peek();
+      if (c === "+") { i++; return factor(); }
+      if (c === "-") { i++; var f = factor(); return f === null ? null : -f; }
+      return primary();
+    }
+    function primary() {
+      var c = peek();
+      if (c === "(") { i++; var v = expr(); if (v === null) return null; if (peek() !== ")") { error = true; return null; } i++; return v; }
+      ws(); var start = i;
+      while (i < n && s[i] >= "0" && s[i] <= "9") i++;
+      if (i < n && s[i] === ".") { i++; while (i < n && s[i] >= "0" && s[i] <= "9") i++; }
+      if (i === start) { error = true; return null; }              // no digits where a number was expected
+      var num = parseFloat(s.slice(start, i));
+      return isFinite(num) ? num : (error = true, null);
+    }
+    var result = expr(); ws();
+    if (error || result === null || i !== n || !isFinite(result)) return null;   // trailing junk / structural error
+    return result;
+  }
   function solveMath(q) {
     var e = String(q || "").replace(/^\s*(what(?:'s| is)|whats|calculate|compute|how much is|solve)\s+/i, "").replace(/[?=]+\s*$/, "").trim();
     e = e.replace(/×/g, "*").replace(/÷/g, "/");
-    if (!/^[-+*/().\d\s]+$/.test(e)) return null;                 // hard whitelist: arithmetic only, no identifiers
-    try { var v = Function('"use strict";return (' + e + ')')(); return (typeof v === "number" && isFinite(v)) ? v : null; }
-    catch (_) { return null; }
+    if (!/^[-+*/().\d\s]+$/.test(e)) return null;                 // fast reject: arithmetic chars only, no identifiers
+    return evalArith(e);                                          // deterministic parser — no eval, no Function
   }
 
   function isCapabilityQuery(q) {
