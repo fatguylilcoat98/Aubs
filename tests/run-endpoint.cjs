@@ -54,6 +54,15 @@ t("isLocal true only for loopback", E.isLocal("http://localhost:8080") && !E.isL
     t("discover marks an unreachable server reachable:false (never throws)", lmstudio.reachable === false && !!lmstudio.error);
   }
 
+  // ── timeout: a hung server must reject (not spin forever) ────────────────────────────────────
+  {
+    const hang = () => new Promise(() => {});   // never resolves
+    let timedOut = false, t0 = Date.now();
+    try { await E.chat("http://localhost:11434/v1", "m", [{ role: "user", content: "hi" }], { timeoutMs: 60 }, hang); }
+    catch (e) { timedOut = /timed out/.test(String(e && e.message)); }
+    t("chat times out on a hung server (honest error, not infinite spin)", timedOut && (Date.now() - t0) < 1000);
+  }
+
   console.log("\nAssertions: " + pass + "/" + (pass + fail));
   if (fail) { console.log("FAILURES:\n" + F.join("\n")); process.exit(1); }
   console.log("Endpoint connector: OpenAI-compatible list/chat, localhost-vs-network classification, best-effort discovery — injected fetch, no network.");

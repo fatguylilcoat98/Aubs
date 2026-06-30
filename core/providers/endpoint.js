@@ -27,6 +27,20 @@
     { name: "Jan", base: "http://localhost:1337/v1" }
   ];
 
+  // fetch with a hard timeout (races a timer; aborts the request) so a hung model server surfaces
+  // an honest error instead of spinning forever. Falls back to a plain call if AbortController is absent.
+  function fetchT(f, url, init, ms) {
+    if (!ms) return Promise.resolve(f(url, init));
+    var ac = (typeof AbortController !== "undefined") ? new AbortController() : null;
+    var init2 = ac ? Object.assign({}, init, { signal: ac.signal }) : init;
+    var to;
+    var timeout = new Promise(function (_, rej) { to = setTimeout(function () { try { if (ac) ac.abort(); } catch (e) {} rej(new Error("timed out after " + Math.round(ms / 1000) + "s")); }, ms); });
+    return Promise.race([Promise.resolve(f(url, init2)), timeout]).then(
+      function (v) { clearTimeout(to); return v; },
+      function (e) { clearTimeout(to); throw e; }
+    );
+  }
+
   function isLocal(base) {
     return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(String(base || ""));
   }
@@ -39,7 +53,7 @@
     opts = opts || {};
     var f = fetchImpl || (typeof fetch !== "undefined" ? fetch : null);
     if (!f) return Promise.reject(new Error("no fetch"));
-    return f(trimBase(base) + "/models", { method: "GET", headers: opts.headers || {} })
+    return fetchT(f, trimBase(base) + "/models", { method: "GET", headers: opts.headers || {} }, opts.timeoutMs || 10000)
       .then(function (r) { if (!r.ok) throw new Error("models " + r.status); return r.json(); })
       .then(function (j) {
         var arr = (j && j.data) || (j && j.models) || [];
@@ -57,7 +71,7 @@
       max_tokens: (opts.max_tokens != null ? opts.max_tokens : 256) };
     var headers = { "Content-Type": "application/json" };
     if (opts.headers) for (var k in opts.headers) headers[k] = opts.headers[k];
-    return f(trimBase(base) + "/chat/completions", { method: "POST", headers: headers, body: JSON.stringify(body) })
+    return fetchT(f, trimBase(base) + "/chat/completions", { method: "POST", headers: headers, body: JSON.stringify(body) }, opts.timeoutMs || 180000)
       .then(function (r) { if (!r.ok) throw new Error("chat " + r.status); return r.json(); })
       .then(function (j) {
         var ch = j && j.choices && j.choices[0];
