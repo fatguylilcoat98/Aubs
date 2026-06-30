@@ -1244,6 +1244,9 @@ window.startDownload=async function(tier){
 function setPct(p,text){ document.getElementById('barFill').style.width=p+"%"; document.getElementById('pctText').textContent=text||(p+"%"); }
 function enterChat(tier){ currentTier=tier; const label=endpointActive?(' · '+(endpointKind==='on-device'?'Local model':'Server model')):(tier==='fast'?' · Fast':' · Smart'); document.getElementById('chatModel').textContent=displayAssistantName()+label; document.getElementById('greetWho').textContent=displayAssistantName().toUpperCase(); show('chat'); renderHistory(); setTimeout(()=>document.getElementById('box').focus(),300); }
 function show(id){ document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active')); document.getElementById(id).classList.add('active'); }
+// AUTO-CONNECT: if a model engine is requested (?engine=<url>), connect to it on load and SKIP the
+// built-in WebGPU download chooser — AUBS isn't downloading anything; it's using the model you run.
+try{ if(endpointWanted() && window.AUBS_ENDPOINT){ window.startDownload('fast'); } }catch(_){}
 window.grow=(t)=>{ t.style.height='auto'; t.style.height=Math.min(t.scrollHeight,120)+'px'; };
 window.keys=(e)=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); window.send(); } };
 /* Runtime recovery (lever 2): the quick single recreate re-faulted on the S24 — a lost
