@@ -108,8 +108,8 @@
     // "how many <to> (are) in <num> <from>"
     if ((m = s.match(/\bhow many\s+([a-z/]+)\s+(?:are\s+)?(?:in|per)\s+(-?\d+(?:\.\d+)?)\s*([a-z/]+)/)))
       return { value: parseFloat(m[2]), from: m[3], to: m[1] };
-    // "(convert) <num> <from> (in|to|into|as) <to>"
-    if ((m = s.match(/(?:convert\s+|what(?:'s| is)\s+)?(-?\d+(?:\.\d+)?)\s*([a-z/]+)\s+(?:in|into|to|as)\s+([a-z/]+)/)))
+    // "(convert) <num> <from> (in|to|into) <to>"  ("as" dropped — too loose; widened over-capture)
+    if ((m = s.match(/(?:convert\s+|what(?:'s| is)\s+)?(-?\d+(?:\.\d+)?)\s*([a-z/]+)\s+(?:in|into|to)\s+([a-z/]+)/)))
       return { value: parseFloat(m[1]), from: m[2], to: m[3] };
     return null;
   }

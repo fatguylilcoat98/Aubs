@@ -85,6 +85,9 @@ function Brain() {
 {
   const b = Brain();
   t("S6 'I'll never forget my trip' is NOT a forget command", SPINE.isForgetCommand("I'll never forget my trip") === null);
+  // AUDIT REGRESSION: abstract "I have a …" is not a durable fact; concrete possessions still are
+  t("S6 'I have a question' is NOT stored as a fact", SPINE.extractFacts("I have a question").length === 0);
+  t("S6 'I have a sister' IS stored", SPINE.extractFacts("I have a sister").some(f => /sister/i.test(f)));
   b.say("I have a question");   // quantifier 'a' matches; tolerated as a possession but harmless
   t("S6 ambiguous 'what's my next move' (no stored fact) → model, not a false 'I don't know'", b.ask("what's my next move?") === "[MODEL]");
 }

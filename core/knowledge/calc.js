@@ -73,14 +73,17 @@
 
   // Extract a clean arithmetic expression from a possibly-noisy question.
   function extractExpr(q) {
-    var t = String(q || "").replace(/×/g, "*").replace(/÷/g, "/").replace(/(\d),(?=\d)/g, "$1");
+    var t = String(q || "").trim().replace(/×/g, "*").replace(/÷/g, "/").replace(/(\d),(?=\d)/g, "$1");
     if (t.indexOf("=") >= 0) t = t.slice(0, t.indexOf("="));     // take the left side of an "=" if present
-    var m = t.match(/[-(]*\s*[0-9.][0-9.\s()+\-*/%^]*[0-9.)]/);  // run may begin with '(' or a unary '-'
-    if (!m) return null;
-    var expr = m[0].trim();
-    if (!/^[0-9.\s()+\-*/%^]+$/.test(expr)) return null;
-    if (!/[+\-*/%^]/.test(expr.replace(/^\s*-\s*/, ""))) return null;   // a real (binary) operator, not just a leading sign
-    return expr;
+    // Strip an explicit calc lead-in and trailing punctuation, THEN require the WHOLE remainder to be
+    // a pure arithmetic expression. This is the key guard: prose with hyphenated numbers/dates/scores
+    // ("happened in 1939-1945", "scored 7/10 on the test", "call me at 555-1234") is NOT math and must
+    // fall through — never be confidently mis-answered by a self-verifiable service.
+    t = t.replace(/^\s*(?:please\s+)?(?:what(?:'?s| is)|whats|calculate|compute|evaluate|solve|how much is)\s+/i, "")
+         .replace(/[\s?.!]+$/, "").trim();
+    if (!/^[-(]*\s*[0-9.][0-9.\s()+\-*/%^]*[0-9.)]$/.test(t)) return null;   // ENTIRE string must be arithmetic
+    if (!/[+\-*/%^]/.test(t.replace(/^\s*-\s*/, ""))) return null;          // and contain a real binary operator
+    return t;
   }
 
   function makePack() {

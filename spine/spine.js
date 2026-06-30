@@ -379,9 +379,14 @@
       if ((m = c.match(/\bi\s+(?:like|love|enjoy|prefer)\s+(.+)/i))) { facts.push("User likes " + tidyFact(m[1])); otherFound = true; }
       // favourite
       if ((m = c.match(/\bmy\s+(favou?rite\s+.+?\s+is\s+.+)/i))) { facts.push("User's " + tidyFact(m[1])); otherFound = true; }
-      // possessions / dependents ("I have two dogs", "I have a sister") — quantifier-scoped to
-      // avoid abstract noise ("I have a question"); multi-value (each distinct possession is kept).
-      if ((m = c.match(/\bi\s+have\s+((?:a|an|one|two|three|four|five|six|some|several|many|no|\d+)\s+.+)/i))) { facts.push("User has " + tidyFact(m[1])); otherFound = true; }
+      // possessions / dependents ("I have two dogs", "I have a sister") — quantifier-scoped, AND the
+      // head noun must not be abstract ("I have a question/problem/idea/minute" are not durable facts).
+      if ((m = c.match(/\bi\s+have\s+((?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|some|several|many|no|\d+)\s+.+)/i))) {
+        var poss = tidyFact(m[1]);
+        var head = poss.replace(/^(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|some|several|many|no|\d+)\s+/i, "").split(/\s+/)[0].toLowerCase().replace(/s$/, "");
+        var ABSTRACT = { question: 1, problem: 1, idea: 1, feeling: 1, thought: 1, doubt: 1, concern: 1, issue: 1, point: 1, minute: 1, moment: 1, second: 1, request: 1, suggestion: 1, complaint: 1, comment: 1, opinion: 1, clue: 1, hunch: 1, plan: 1 };
+        if (!ABSTRACT[head]) { facts.push("User has " + poss); otherFound = true; }
+      }
       // casual bare name — ONLY if nothing else matched this clause (so "i'm from X",
       // "i'm building X" don't also yield a name). "i'?m" matches both "i'm" and "im".
       if (!nameFound && !otherFound && (m = c.match(/\b(?:i'?m|i am)\s+([A-Za-z][\w'-]*(?:\s+[A-Za-z][\w'-]*)?)/i))) {

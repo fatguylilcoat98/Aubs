@@ -62,6 +62,8 @@
       .then(function (j) {
         var ch = j && j.choices && j.choices[0];
         var text = (ch && ch.message && ch.message.content) || (ch && ch.text) || "";
+        // Some servers return content as an array of parts ([{type:"text",text:"…"}]) — join the text parts.
+        if (Array.isArray(text)) text = text.map(function (p) { return (p && (p.text || p.content)) || ""; }).join("");
         return { text: String(text || ""), finish: (ch && ch.finish_reason) || "stop", model: (j && j.model) || model };
       });
   }
