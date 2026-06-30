@@ -307,6 +307,20 @@ definition. This is the first **Class-2** pack — it proves the cited-source ra
 lexicon proved the self-verifiable one. Conversational deixis ("what does **it** mean") is resolved
 by the **runtime** from the last word asked about, not by the model. Tests: `run-knowledge-definitions`.
 
+### Pack #3 — Conversion service (Class 1, self-verifiable) ✅
+`core/knowledge/conversions.js` — not a corpus but a **computation** the runtime owns: length, mass,
+volume, temperature (affine), time, speed, and digital-storage conversions. "5 miles in km" →
+**8.04672 km**, exact, model 0×, no data asset, no citation, no hallucination. Incompatible
+dimensions or non-units fall through (null). This is the cleanest expression of the design filter —
+*can the runtime own this reliably enough that the model no longer needs to?* For unit conversion,
+emphatically yes. Tests: `run-knowledge-conversions`.
+
+> **Framing (Architect Mode).** These are not "packs of facts" — they are **runtime services** in a
+> **knowledge hierarchy**: Class 1 exact/self-verifiable (words · conversions · math · dates) →
+> Class 2 grounded/cited (definitions · encyclopedia summaries) → Class 3 retrieved (private
+> server) → Class 4 governed external (web · models). The model isn't getting bigger; the operating
+> system is.
+
 ---
 
 ## 8. Output Guards — the runtime validates what the model says
