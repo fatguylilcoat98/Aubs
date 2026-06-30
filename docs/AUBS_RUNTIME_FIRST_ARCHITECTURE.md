@@ -172,6 +172,19 @@ open-ended talk and AUBS's **facts** on identity questions. **Style and truth co
 overwrite the other.** Swap the model and the activation still works — only the rendered voice
 changes, because the activation lives in the runtime.
 
+### 3.6 Persona comprehension (persona ⟂ knowledge)
+The architecture should *understand* the words a persona is made of, not hope the model does. When a
+persona is set, the runtime extracts its descriptive words and **pulls their meaning from the owned
+dictionary** (Pack #2), folding the glosses into the compiled instruction: "be cheerful" → *cheerful
+— full of good spirits; merry*; "you're a vampire" → *vampire — a blood-sucking reanimated body*.
+The honest split holds: for a **real person** ("Donald Trump") the dictionary is **not** consulted
+(it would only mis-define "trump" the noun) — the model supplies the person; for **traits and
+characters** the dictionary comprehends them. Only words the dictionary actually knows are attached
+(nothing invented), capped to keep the prompt lean. Implemented as `personaDescriptors` +
+`comprehendPersona(persona, define)` with `define` injected from the definitions pack — persona stays
+dependency-free and fully testable. In the app it's cached per-persona and the prompt is rebuilt once
+the (lazy) dictionary is ready. Tests: `run-persona` (comprehension block).
+
 ### 3.4 Why this is the right place for it
 Persona-in-the-model = inconsistent, unprovable, leaks into reasoning, dies on a model swap.
 Persona-in-the-runtime = consistent, inspectable, swappable, model-agnostic, and **governed**

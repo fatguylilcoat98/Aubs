@@ -59,6 +59,36 @@ t("resolve partial override merges onto a built-in", P.resolvePersona({ id: "fri
     JSON.stringify(P.activatePersona("channel Yoda")) === JSON.stringify(P.resolvePersona("channel Yoda")));
 }
 
+// ── PERSONA COMPREHENSION (persona ⟂ knowledge): the runtime understands the words ────────────
+{
+  // a tiny fake dictionary stands in for the definitions pack
+  const DICT = { cheerful: "Full of good spirits; merry.", anxious: "Full of mental distress or uneasiness.", vampire: "A blood-sucking ghost or reanimated body.", trump: "A wind instrument; a trumpet." };
+  const define = (w) => DICT[String(w || "").toLowerCase()] || null;
+
+  // register/trait → comprehend the trait word
+  const cheer = P.comprehendPersona(P.resolvePersona("be cheerful"), define);
+  t("comprehend register: 'cheerful' meaning attached from the dictionary",
+    cheer.comprehension && cheer.comprehension[0].word === "cheerful" && /good spirits/.test(cheer.comprehension[0].gloss));
+  t("compiled persona FOLDS the comprehension in", /What these words mean/.test(P.compilePersona(cheer)) && /cheerful — Full of good spirits/.test(P.compilePersona(cheer)));
+
+  // character → comprehend the role noun ("vampire")
+  const vamp = P.comprehendPersona(P.resolvePersona("you're a vampire"), define);
+  t("comprehend character: 'vampire' meaning attached", vamp.comprehension && vamp.comprehension.some(m => m.word === "vampire" && /blood/.test(m.gloss)));
+
+  // impression (real person) → the dictionary is NOT used (model supplies the person)
+  const trump = P.comprehendPersona(P.resolvePersona("talk like Donald Trump"), define);
+  t("impression: NO dictionary comprehension (avoids defining 'trump' the noun)", !trump.comprehension);
+  t("personaDescriptors empty for a real-person impression", P.personaDescriptors(P.resolvePersona("talk like Donald Trump")).length === 0);
+
+  // unknown trait → nothing invented (only what the dictionary knows is attached)
+  const unknown = P.comprehendPersona(P.resolvePersona("be zorptastic"), define);
+  t("unknown trait → no comprehension invented", !unknown.comprehension);
+
+  // built-in persona → comprehends its voice tone words
+  const coach = P.comprehendPersona(P.PERSONAS.coach, (w) => ({ firm: "Securely fixed; resolute." }[w] || null));
+  t("built-in persona comprehends a voice-tone word", coach.comprehension && coach.comprehension[0].word === "firm");
+}
+
 // ── persona guard strips model-identity / AI-disclaimer leaks ────────────────────────────────
 {
   t("guard strips 'As an AI language model, I ...'", !/language model/i.test(P.personaGuard("As an AI language model, I can't have feelings. But here's help.", P.DEFAULT)));
