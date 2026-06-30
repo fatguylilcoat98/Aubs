@@ -22,6 +22,36 @@ that surface.
 
 ---
 
+## 0. Constitutional guarantees (🔒 never regress)
+
+Above the four maturity stages (Implemented / Integrated / Verified / Observed) sits a fifth,
+stricter class: **🔒 Constitutional.** These are not features — they are guarantees the system
+makes about itself. A feature can be deferred; a constitutional guarantee may never silently
+regress. If one breaks, that is *architecture damage*, not a normal bug, and the build goes red.
+
+- 🔒 **The runtime owns identity.** Name / product / acronym / creator / version come from owned
+  state, never the model's weights.
+- 🔒 **The runtime owns memory recall.** Recall before reasoning; stored personal facts are
+  answered from owned memory, and honestly ("I don't know yet") when absent — never invented.
+- 🔒 **Governed facts are model 0×.** A governed answer is produced without consulting the model.
+- 🔒 **A Trust Record exists for every answer**, with a declared proof strength that can never
+  silently increase itself.
+- 🔒 **The Glass Box reflects real execution** — it renders the Trust Record, not a narrative.
+- 🔒 **The door was locked.** When nothing needs to leave, nothing leaves; egress is the single
+  audited door.
+
+**These are enforced by an executable test, not by assertion.** The **Architecture Independence
+Test** (`tests/run-architecture-independence.cjs`, a.k.a. the Model Independence Proof) runs the
+full governed-fact battery through the real pipeline against five wildly different backends —
+0.5B, 7B, 70B, cloud, and a **HOSTILE model that actively lies about identity** — and proves
+every governed answer is **byte-identical**, the model is called **0×** on governed turns (the
+liar cannot corrupt a single fact), and **only open-ended language varies** by model. It runs
+**first, on every merge, forever** (CI: `.github/workflows/ci.yml`). If it ever fails, something
+leaked into the model. *The architecture carries correctness; the model carries eloquence —
+and now that sentence is a green check, not a slogan.*
+
+---
+
 ## 1. The pre-LLM runtime stack (every turn runs ALL of this first)
 
 Ordered. Each layer can resolve the turn (model 0×) or enrich it for the next. The model is
