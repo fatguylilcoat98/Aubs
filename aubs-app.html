@@ -611,10 +611,40 @@ function activePersona(){
     return window.AUBS_PERSONA.resolvePersona(sel || undefined);
   }catch(e){ return null; }
 }
+// Persona COMPREHENSION cache: the runtime grounds a persona's descriptive words (cheerful,
+// vampire, anxious…) in the owned dictionary. Keyed by the descriptor set; populated async because
+// the dictionary is lazy-loaded, then the prompt is rebuilt so the meaning is folded in.
+let __personaCompKey=null, __personaCompMeanings=null, __personaCompPending=null;
+async function ensurePersonaComprehension(p, key){
+  if(__personaCompPending===key) return;                 // dedupe in-flight
+  __personaCompPending=key;
+  try{
+    await ensureDefinitions();
+    if(__defPack){
+      const c=window.AUBS_PERSONA.comprehendPersona(p, __defPack.define);
+      __personaCompKey=key; __personaCompMeanings=(c&&c.comprehension)||[];
+      if(typeof rebuildSystemPrompt==="function") rebuildSystemPrompt();   // fold meanings into the live prompt
+    }
+  }catch(_){}
+  __personaCompPending=null;
+}
 // Compiled persona instruction for Tier-1 injection (empty string when off → byte-identical prompt).
 function compiledPersona(){
   if(!personaOn()) return "";
-  try{ var p=activePersona(); return p ? (window.AUBS_PERSONA.compilePersona(p, resolvedIdentity()||undefined) || "") : ""; }catch(e){ return ""; }
+  try{
+    var p=activePersona(); if(!p) return "";
+    // Comprehension (only when the Knowledge Layer is on): attach cached dictionary meanings for the
+    // persona's descriptive words; otherwise kick off the async lookup + prompt rebuild.
+    if(typeof knowledgeOn==="function" && knowledgeOn() && window.AUBS_PERSONA.personaDescriptors){
+      var descs=window.AUBS_PERSONA.personaDescriptors(p);
+      if(descs.length){
+        var key=descs.join(",");
+        if(__personaCompKey===key && __personaCompMeanings){ if(__personaCompMeanings.length) p=Object.assign({},p,{comprehension:__personaCompMeanings}); }
+        else { ensurePersonaComprehension(p, key); }
+      }
+    }
+    return window.AUBS_PERSONA.compilePersona(p, resolvedIdentity()||undefined) || "";
+  }catch(e){ return ""; }
 }
 // Post-generation persona guard (no-op when off). Strips model-identity / AI-disclaimer leaks.
 function personaGuardOut(text){

@@ -98,6 +98,44 @@
   // Convenience alias: activate ANY persona request into a resolved, structured spec.
   function activatePersona(input) { return resolvePersona(input); }
 
+  // ── PERSONA COMPREHENSION (persona ⟂ knowledge) ──────────────────────────────────────────────
+  // The architecture should UNDERSTAND the words a persona is made of — "cheerful", "anxious",
+  // "vampire" — not hope the model does. So for tone/trait and character personas it pulls the
+  // descriptive words' MEANINGS from the owned dictionary and folds them into the instruction. For
+  // a real person ("Donald Trump") it pulls NOTHING from the dictionary (the model supplies the
+  // person) — that's the honest split: the dictionary comprehends common words, the model the famous.
+  var DESC_STOP = { a: 1, an: 1, the: 1, like: 1, talk: 1, speak: 1, talks: 1, speaks: 1, very: 1, and: 1, but: 1, be: 1, you: 1, your: 1, "you're": 1, just: 1, really: 1, kind: 1, of: 1, who: 1, with: 1, more: 1, less: 1, act: 1, as: 1, style: 1, tone: 1, voice: 1, sound: 1, im: 1, are: 1 };
+  function addWords(str, out) {
+    String(str || "").toLowerCase().split(/[^a-z]+/).forEach(function (w) { if (w.length > 2 && !DESC_STOP[w]) out.push(w); });
+  }
+  // The descriptive words worth comprehending for this persona (empty for a real-person impression).
+  function personaDescriptors(persona) {
+    var p = persona || {};
+    if (p.mode === "impression") return [];               // proper name → model's job, not the dictionary's
+    var raw = [];
+    if (p.subject) addWords(p.subject, raw);               // "a vampire" → vampire; "cheerful" → cheerful
+    if (p.voice && p.voice.tone) addWords(p.voice.tone, raw);  // built-in tones (firm, candid, …)
+    if (p.custom_directive && !p.subject) addWords(p.custom_directive, raw);
+    var seen = {}, out = [];
+    for (var i = 0; i < raw.length && out.length < 6; i++) if (!seen[raw[i]]) { seen[raw[i]] = 1; out.push(raw[i]); }
+    return out;
+  }
+  function trimGloss(g) { g = String(g || "").replace(/\s+/g, " ").trim(); return g.length > 140 ? g.slice(0, 140).replace(/[ ,;]+\S*$/, "") + "…" : g; }
+  // Attach dictionary meanings for the persona's descriptive words. `define` is injected (the
+  // definitions pack), so persona stays dependency-free and this is fully testable. Only words the
+  // dictionary actually knows are attached (honest — no invented meanings); capped to keep the
+  // prompt lean. Returns the persona unchanged if nothing was comprehended.
+  function comprehendPersona(persona, define) {
+    if (!persona || typeof define !== "function") return persona;
+    var words = personaDescriptors(persona), meanings = [];
+    for (var i = 0; i < words.length && meanings.length < 3; i++) {
+      var g = define(words[i]);
+      if (g) meanings.push({ word: words[i], gloss: trimGloss(g) });
+    }
+    if (!meanings.length) return persona;
+    return Object.assign({}, persona, { comprehension: meanings });
+  }
+
   // Compile structured persona → a deterministic system instruction (Tier-1 injection).
   // Same persona in → same text out. Safety/truth/governed-facts precedence is stated explicitly.
   function compilePersona(persona, resolvedIdentity) {
@@ -125,6 +163,10 @@
     } else if (p.custom_directive) {
       L.push("Style note: " + String(p.custom_directive));
     }
+    // COMPREHENSION: the runtime grounds the persona's descriptive words in its own dictionary so
+    // the model embodies their actual meaning (cheerful, anxious, vampire…), not a guess.
+    if (p.comprehension && p.comprehension.length)
+      L.push("What these words mean (let their meaning shape your voice): " + p.comprehension.map(function (m) { return m.word + " — " + m.gloss; }).join("; ") + ".");
     L.push("Stay in character; do NOT say \"as an AI language model\" or claim to be ChatGPT/GPT/Claude/Gemini or a human.");
     if (p.boundaries && p.boundaries.length) L.push("Never cross these: " + p.boundaries.join("; ") + ".");
     L.push("Safety and truth come first. If they conflict with the persona, drop to a " + (p.fallback_register || "neutral, helpful, honest") + " voice. The persona never changes the FACTS — those come from the runtime.");
@@ -143,7 +185,7 @@
     return out || String(text || ""); // never gut the answer to empty
   }
 
-  var API = { PERSONAS: PERSONAS, DEFAULT: DEFAULT, resolvePersona: resolvePersona, activatePersona: activatePersona, parseActivation: parseActivation, detectMode: detectMode, compilePersona: compilePersona, personaGuard: personaGuard };
+  var API = { PERSONAS: PERSONAS, DEFAULT: DEFAULT, resolvePersona: resolvePersona, activatePersona: activatePersona, parseActivation: parseActivation, detectMode: detectMode, personaDescriptors: personaDescriptors, comprehendPersona: comprehendPersona, compilePersona: compilePersona, personaGuard: personaGuard };
   if (typeof module !== "undefined" && module.exports) module.exports = API;
   else if (typeof window !== "undefined") window.AUBS_PERSONA = API;
   else if (typeof globalThis !== "undefined") globalThis.AUBS_PERSONA = API;
