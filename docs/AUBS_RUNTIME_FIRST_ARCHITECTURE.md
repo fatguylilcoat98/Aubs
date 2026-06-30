@@ -65,6 +65,7 @@ USER TURN
   4. Governed-Fact Registry ... runtime OWNS the answer? → answer, model 0×  ✅ core/facts (expand §2)
   5. Reality Context .......... date/time/location/device — runtime truth    ☐ (§5)
   6. Deterministic Responders . greeting/thanks/math/units/commands          ◑ spine.routeQuery (expand §6)
+ 6b. Knowledge Packs ......... owned corpora (lexicon ✓; reference = cited)  ◑ core/knowledge (§6b)
   7. Memory-First Answer ...... answer in owned memory? → answer, model 0×    ✅ recall (§7)
   8. Reasoning Permission ..... is the model even allowed to answer?          ✅ core/trust
   9. Context Assembly ......... build the tiered context the model will see   ◑ (§4 — Splendor pattern)
@@ -251,6 +252,50 @@ modes were closed (Architect Mode Priority 1 — "spend a merge trying to destro
 shapes. All flag-gated with `FLAG_GOVERNED_FACTS`; OFF keeps the original append+dedup capture.
 Proof: `run-memory-adversarial` (17/17) runs the exact human scripts — cross-slot isolation,
 supersession, multi-value, forget (single + all), no over-capture, honest on the unknown.
+
+---
+
+## 6b. The Knowledge Layer — make the runtime massive, *honestly*
+
+The goal: the architecture should *carry* knowledge, not rent all of it from the model. Word lists,
+dictionaries, encyclopedias, gazetteers — owned corpora that let the runtime answer directly, with
+the model called rarely or never. "The model helps; the architecture carries."
+
+The danger, and the rule that makes it safe: **owning a corpus does not make it *true* — it makes it
+*cited*.** So every owned corpus is a **Knowledge Pack** that declares its **proof class**, and a
+pack may never answer above its class (the same no-silent-upgrade law the Architecture Independence
+Test protects).
+
+### Two trust classes (never blur them)
+- **Class 1 — closed-world, self-verifiable.** Membership/lookup questions the runtime can answer
+  with certainty, model 0×. *"Is `xylophone` a word?"* → the lexicon answers definitively. Same
+  trust tier as identity/date/memory. Proof strength: **self-verifiable (✓)**.
+- **Class 2 — open-world, grounded/cited.** Reference knowledge (encyclopedia, world facts). Even
+  stored locally, the runtime owns a **source**, not the truth — the corpus can be wrong, dated, or
+  biased, and synthesis may still need the model. Proof strength: **grounded / runtime-attested (~)**,
+  always rendered as *"according to &lt;source&gt;,"* **never self-verifiable**.
+
+### Pack contract
+A Knowledge Pack is owned runtime state with: `{ id, name, version, proof_class, count/size, source,
+license, load() }`. It exposes deterministic query functions and returns a proof object
+`{ class, source, model_called:false }` with every answer. Packs sit at stack layer 6b — after
+deterministic responders, before memory and the model — and each renders its own Glass Box line
+(*"Answered from the AUBS lexicon — 370,105 words — model 0×"*). All flag-gated (`FLAG_KNOWLEDGE`);
+OFF → byte-identical.
+
+### Scaling reality (planned honestly)
+Small packs (a ~4 MB word list) ship as an app asset on the AUBS origin, lazy-loaded and
+service-worker-cached → offline after first use, **no third-party egress** (it's an app asset, not a
+network call out). **Encyclopedias are gigabytes** and cannot all precache into a phone PWA: large
+packs will be indexed / downloaded-on-demand / server-hosted. A pack must `log()` any coverage limit
+(a partial or sampled corpus) — silent truncation reads as "I know everything" when it doesn't.
+
+### Pack #1 — Lexicon (Class 1) ✅
+`core/knowledge/lexicon.js` + `core/knowledge/registry.js`, data `assets/lexicon/words_alpha.txt`
+(dwyl/english-words, Unlicense, 370,105 words, normalized to LF). Answers *"is X a word?"* (with a
+deterministic did-you-mean from the set), *"how many words do you know?"* — self-verifiable, model 0×.
+This pack establishes the **rail** (loader · proof-class tagging · responder · Glass Box · flag · CI)
+so every later corpus is "just another pack" on a trustworthy track. Tests: `run-knowledge-lexicon`.
 
 ---
 

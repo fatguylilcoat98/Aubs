@@ -412,6 +412,10 @@ body{background:var(--bgbase);color:var(--ink);font-family:var(--font-body);
 <script src="core/facts/bundle.js"></script>
 <!-- Persona System v1 — personality as owned runtime state (compile + guard). -->
 <script src="core/persona/persona.js"></script>
+<!-- Knowledge Layer — owned corpora with declared proof classes. Pack #1: lexicon (Class 1,
+     self-verifiable). Data (assets/lexicon/words_alpha.txt) is lazy-loaded on first use. -->
+<script src="core/knowledge/registry.js"></script>
+<script src="core/knowledge/lexicon.js"></script>
 <!-- Trust OS (Layers 1–9). Classic scripts: define window.AUBS_* globals only; inert unless
      FLAG_TRUST_OS (?trust=1). Load after spine/ledger + facts, before pipeline.js (reads AUBS_TRUST). -->
 <script src="core/trust/strengths.js"></script>
@@ -613,6 +617,51 @@ function compiledPersona(){
 function personaGuardOut(text){
   if(!personaOn()) return text;
   try{ return window.AUBS_PERSONA.personaGuard(text, activePersona())||text; }catch(e){ return text; }
+}
+
+/* ── Knowledge Layer — FLAG_KNOWLEDGE (default OFF) ──────────────────────────────────
+   When ON, owned corpora (Knowledge Packs) answer BEFORE the model, model 0×, each with a
+   declared proof class. Pack #1 is the lexicon ("is X a word?", "how many words do you know?").
+   The 3.9MB word list is NOT precached — it is lazy-loaded from the AUBS origin on first use
+   (an app asset, not third-party egress) and service-worker-cached → offline after first use.
+   OFF → nothing runs; the turn flows to the model as before. Enable: ?know=1 (or aubs_know=1). */
+let FLAG_KNOWLEDGE=false;
+try{
+  const qp=new URLSearchParams(location.search);
+  if(qp.get('know')==='1'||localStorage.getItem('aubs_know')==='1') FLAG_KNOWLEDGE=true;
+  if(qp.get('know')==='0'){ FLAG_KNOWLEDGE=false; try{ localStorage.removeItem('aubs_know'); }catch(_){} }
+  if(qp.get('know')==='1'){ try{ localStorage.setItem('aubs_know','1'); }catch(_){} }
+}catch(e){}
+let __lexiconPack=null, __lexiconLoading=null;
+function knowledgeOn(){ return !!(FLAG_KNOWLEDGE && typeof window!=="undefined" && window.AUBS_KNOWLEDGE && window.AUBS_LEXICON); }
+// Lazy-load + register the lexicon pack once. Returns a promise resolving to the pack (or null).
+function ensureLexicon(){
+  if(!knowledgeOn()) return Promise.resolve(null);
+  if(__lexiconPack) return Promise.resolve(__lexiconPack);
+  if(__lexiconLoading) return __lexiconLoading;
+  __lexiconLoading=fetch("assets/lexicon/words_alpha.txt").then(r=>r.ok?r.text():Promise.reject(new Error("lexicon "+r.status)))
+    .then(txt=>{ __lexiconPack=window.AUBS_LEXICON.buildLexicon(txt,{name:"AUBS lexicon",version:"words_alpha"});
+      try{ window.AUBS_KNOWLEDGE.register(__lexiconPack); }catch(_){}
+      console.log("[AUBS] lexicon pack loaded:", __lexiconPack.count, "words"); return __lexiconPack; })
+    .catch(e=>{ console.error("[AUBS] lexicon load failed:", e); __lexiconLoading=null; return null; });
+  return __lexiconLoading;
+}
+// Cheap pre-gate: only worth loading the corpus if the turn LOOKS like a lexicon question.
+// (Superset of the pack's own detector, so it never misses a real one.) Avoids a 3.9MB fetch
+// on unrelated turns.
+function looksLikeLexiconQuery(t){
+  const s=String(t||"");
+  return /\bis\s+["']?[a-z][a-z'-]*["']?\s+(?:a\s+)?(?:real\s+|valid\s+|english\s+)?word\b/i.test(s)
+      || /\bis\s+["']?[a-z][a-z'-]*["']?\s+spelled\s+(?:right|correctly)\b/i.test(s)
+      || /\bis\s+["']?[a-z][a-z'-]*["']?\s+in\s+(?:the\s+|your\s+)?dictionary\b/i.test(s)
+      || /\bhow many words (?:do you|does aubs|do u)\s+(?:know|have)\b/i.test(s)
+      || /\bhow (?:big|large) is your (?:dictionary|lexicon|vocabulary|word ?list)\b/i.test(s);
+}
+// Answer from the Knowledge Layer if a pack owns it (model 0×). Returns {answer,proof,factId}|null.
+async function knowledgeAnswer(text){
+  if(!knowledgeOn() || !looksLikeLexiconQuery(text)) return null;
+  const pack=await ensureLexicon(); if(!pack) return null;
+  try{ return window.AUBS_KNOWLEDGE.ask(text); }catch(_){ return null; }
 }
 
 /* ── Milestone 0 — Ledger wiring (additive, behind FLAG_LEDGER) ──────────────────
@@ -940,8 +989,10 @@ console.log("[AUBS] build:", BUILD, "· spine:", (typeof SPINE!=="undefined"&&SP
   if(typeof FLAG_TRUST_OS!=="undefined"&&FLAG_TRUST_OS) fl.push("trust");
   if(typeof SPINE!=="undefined"&&SPINE&&SPINE.FLAGS&&SPINE.FLAGS.FLAG_IDENTITY_V2) fl.push("identity");
   if(typeof FLAG_PERSONA!=="undefined"&&FLAG_PERSONA) fl.push("persona"+(PERSONA_SEL?(":"+PERSONA_SEL):""));
+  if(typeof FLAG_KNOWLEDGE!=="undefined"&&FLAG_KNOWLEDGE) fl.push("know");
   const pers=(typeof window!=="undefined"&&window.AUBS_PERSONA&&window.AUBS_PERSONA.compilePersona)?" · persona LOADED":" · persona ABSENT";
-  el.textContent=BUILD+sp+tos+pers+" · flags: "+(fl.length?fl.join(","):"none");
+  const kno=(typeof window!=="undefined"&&window.AUBS_KNOWLEDGE&&window.AUBS_LEXICON)?" · knowledge LOADED":" · knowledge ABSENT";
+  el.textContent=BUILD+sp+tos+pers+kno+" · flags: "+(fl.length?fl.join(","):"none");
 })();
 
 // Fast default = Qwen2.5-0.5B-Instruct — the original "0.9 GB test model" (945MB download)
@@ -1104,6 +1155,9 @@ window.send=async function(){
   // reach the pipeline memory stage instead of a dead-end.)
   const useInlineGovernedFacts = governedFactsOn() && !(constitutionChatOn() && trustOsOn());
   const gf=(!gate.blocked && useInlineGovernedFacts)?window.AUBS_FACT_GATE.governedFactGate(text,{ resolved:governedFactResolved(), runtime:aubsRuntimeMetaFull(), entries:routerEntries, enabled:true }):{handled:false};
+  // KNOWLEDGE LAYER (6b) — owned corpora answer before the model (model 0×). Lazy-loads the pack
+  // only on a plausible lexicon query (see knowledgeAnswer). Not handled → null → flows on.
+  const know=(!gate.blocked && !gf.handled)?await knowledgeAnswer(text):null;
   const RECOVERABLE=/GPUBuffer|mapAsync|unmapped|device is lost|Device is lost|disposed|not loaded|reload\(/i;
   try{
     if(gate.blocked){
@@ -1141,6 +1195,17 @@ window.send=async function(){
       saveHistory(history.slice(1));
       captureMemories(text);
       logProvenanceFor(text, full, [history[0],{role:"user",content:text}], t0, aiWrap, { handled:true, intent:"governed:"+gf.factId, source_of_answer:"runtime_fact", tag:"general", memory_ids_cited:[], grounding_source:null });
+    } else
+    if(know && know.answer){
+      // KNOWLEDGE LAYER (6b) — answered from an owned corpus (Pack #1: lexicon), model 0×.
+      full=know.answer; finish="knowledge:"+(know.pack||"?"); bubble.textContent=full;
+      history.push({role:"assistant",content:full});
+      saveHistory(history.slice(1));
+      captureMemories(text);
+      // Glass Box line: which pack answered, its proof class, model 0×.
+      try{ const gx=document.createElement('div'); gx.className='glass-box-easy'; gx.style.cssText='font-size:0.78em;opacity:0.7;margin-top:4px';
+        gx.textContent='🔎 Answered from '+((know.proof&&know.proof.source)||'AUBS knowledge')+' · '+((know.proof&&know.proof.class)||'')+' · model 0×'; aiWrap.appendChild(gx); }catch(_){}
+      logProvenanceFor(text, full, [history[0],{role:"user",content:text}], t0, aiWrap, { handled:true, intent:finish, source_of_answer:"runtime_fact", tag:"general", memory_ids_cited:[], grounding_source:null });
     } else
     if(routed && routed.handled){
       // Deterministic route — NO model call. Identity/math/memory/capability/greeting/unsafe.
