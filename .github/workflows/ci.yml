@@ -1,0 +1,35 @@
+name: AUBS CI — Architecture Independence + governed-runtime suite
+
+# Runs on every push to main and every pull request, forever. The Architecture Independence
+# Test is the constitutional gate: if it fails, something leaked into the model — that is
+# architecture damage, and the build must go red.
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  architecture-independence:
+    name: 🔒 Architecture Independence (Model Independence Proof)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      # The defining proof: every governed answer is identical across 0.5B / 7B / 70B / cloud /
+      # a HOSTILE model, the model is called 0× on governed turns, and only open-ended language
+      # varies by model. "The architecture carries correctness. The model carries eloquence."
+      - name: Run the Architecture Independence Test
+        run: node tests/run-architecture-independence.cjs
+
+  full-suite:
+    name: Full governed-runtime suite (54 suites)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Run every tests/run-*.cjs
+        run: node tests/run-all.cjs
