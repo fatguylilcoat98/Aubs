@@ -315,6 +315,16 @@ dimensions or non-units fall through (null). This is the cleanest expression of 
 *can the runtime own this reliably enough that the model no longer needs to?* For unit conversion,
 emphatically yes. Tests: `run-knowledge-conversions`.
 
+### Pack #4 — Time service (Class 1, self-verifiable) ✅
+`core/knowledge/time.js` — the device clock + platform timezone database are authoritative for the
+current instant, so the runtime answers with certainty, model 0×. Basic local date/time stays in the
+reality-context governed facts; this service adds **time in another city/timezone** ("what time is it
+in Tokyo" → composed deterministically, DST applied by the platform), **relative dates**
+("tomorrow"/"yesterday"), and the **local timezone** ("what timezone am I in"). `now` is injectable
+for deterministic tests. The reality facts now **defer** the "…in &lt;place&gt;" and
+"…tomorrow/yesterday" forms to this service (no collision). Unknown places fall through (null).
+Tests: `run-knowledge-time`.
+
 > **Framing (Architect Mode).** These are not "packs of facts" — they are **runtime services** in a
 > **knowledge hierarchy**: Class 1 exact/self-verifiable (words · conversions · math · dates) →
 > Class 2 grounded/cited (definitions · encyclopedia summaries) → Class 3 retrieved (private

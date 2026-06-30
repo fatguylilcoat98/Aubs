@@ -223,6 +223,8 @@
       modelMayOriginate: false,
       match: function (q, ctx) {
         if (!isDateQuery(q)) return null;
+        // Defer relative-date forms ("the date tomorrow / yesterday") to the time service.
+        if (/\b(?:tomorrow|yesterday)\b/i.test(String(q || ""))) return null;
         var rt = (ctx && ctx.runtime) || {};
         var ds = rt.dateStr || fmtDateUTC(rt.now);
         return { answer: ds ? ("Today is " + ds + ".") : "I don't have the current date from this device right now." };
@@ -234,6 +236,8 @@
       modelMayOriginate: false,
       match: function (q, ctx) {
         if (!isTimeQuery(q)) return null;
+        // Defer "time in/at <place>" to the time service (this entry owns only LOCAL time).
+        if (/\b(?:in|at)\s+[a-z]/i.test(String(q || ""))) return null;
         var rt = (ctx && ctx.runtime) || {};
         var ts = rt.timeStr || fmtTimeUTC(rt.now);
         return { answer: ts ? ("It's " + ts + ".") : "I don't have the current time from this device right now." };
