@@ -419,6 +419,7 @@ body{background:var(--bgbase);color:var(--ink);font-family:var(--font-body);
 <script src="core/knowledge/definitions.js"></script>
 <script src="core/knowledge/conversions.js"></script>
 <script src="core/knowledge/time.js"></script>
+<script src="core/knowledge/calc.js"></script>
 <!-- Trust OS (Layers 1–9). Classic scripts: define window.AUBS_* globals only; inert unless
      FLAG_TRUST_OS (?trust=1). Load after spine/ledger + facts, before pipeline.js (reads AUBS_TRUST). -->
 <script src="core/trust/strengths.js"></script>
@@ -661,8 +662,8 @@ try{
   const qp=new URLSearchParams(location.search);
   if(AUBS_SAFE || qp.get('know')==='0'){ FLAG_KNOWLEDGE=false; try{ localStorage.removeItem('aubs_know'); }catch(_){} }
 }catch(e){}
-let __lexiconPack=null, __lexiconLoading=null, __defPack=null, __defLoading=null, __convPack=null, __timePack=null, lastKnowledgeWord=null;
-function knowledgeOn(){ return !!(FLAG_KNOWLEDGE && typeof window!=="undefined" && window.AUBS_KNOWLEDGE && window.AUBS_LEXICON && window.AUBS_DEFINITIONS && window.AUBS_CONVERSIONS && window.AUBS_TIME); }
+let __lexiconPack=null, __lexiconLoading=null, __defPack=null, __defLoading=null, __convPack=null, __timePack=null, __calcPack=null, lastKnowledgeWord=null;
+function knowledgeOn(){ return !!(FLAG_KNOWLEDGE && typeof window!=="undefined" && window.AUBS_KNOWLEDGE && window.AUBS_LEXICON && window.AUBS_DEFINITIONS && window.AUBS_CONVERSIONS && window.AUBS_TIME && window.AUBS_CALC); }
 // Conversion service (Class 1, self-verifiable) — pure computation, NO asset, registers instantly.
 function ensureConversions(){
   if(!knowledgeOn()) return null;
@@ -675,6 +676,12 @@ function ensureTimeService(){
   if(!knowledgeOn()) return null;
   if(!__timePack){ try{ __timePack=window.AUBS_TIME.makePack({ now:function(){ return new Date(); } }); window.AUBS_KNOWLEDGE.register(__timePack); }catch(_){} }
   return __timePack;
+}
+// Calculation service (Class 1, self-verifiable) — exact arithmetic. NO asset; registers instantly.
+function ensureCalc(){
+  if(!knowledgeOn()) return null;
+  if(!__calcPack){ try{ __calcPack=window.AUBS_CALC.makePack(); window.AUBS_KNOWLEDGE.register(__calcPack); }catch(_){} }
+  return __calcPack;
 }
 // Lazy-load + register the lexicon pack once (Pack #1, Class 1). 3.9MB, fetched on first use.
 function ensureLexicon(){
@@ -721,6 +728,12 @@ function looksLikeConversionQuery(t){
   return /(?:convert\s+)?-?\d+(?:\.\d+)?\s*[a-z°/]+\s+(?:in|into|to|as)\s+[a-z°/]+/i.test(s)
       || /\bhow many\s+[a-z°/]+\s+(?:are\s+)?(?:in|per)\s+-?\d+/i.test(s);
 }
+function looksLikeCalcQuery(t){
+  const s=String(t||"").replace(/×/g,'*').replace(/÷/g,'/');
+  return /\d\s*[-+*/%^]\s*[\d(]/.test(s)                                  // a op b  (e.g. 5+3, 2*(…))
+      || /\d+(?:\.\d+)?\s*(?:%|percent)\s+of\s+\d/i.test(s)               // X% of Y
+      || /\b(?:calculate|compute|evaluate|what(?:'?s| is))\b[^?]*\d\s*[-+*/%^]/i.test(s);
+}
 function looksLikeTimeServiceQuery(t){
   const s=String(t||"");
   return /\b(?:what(?:'?s| is)\s+the\s+time|what\s+time\s+is\s+it|current\s+time|time)\s+(?:in|at)\s+[a-z]/i.test(s)   // time in <place>
@@ -744,8 +757,9 @@ async function knowledgeAnswer(text){
   let q=String(text||"");
   const itForm=/\bwhat(?:'?s| is| does| do)?\s+it\s+mean\b/i.test(q)||/\bdefine\s+it\b/i.test(q)||/\bwhat'?s\s+it\s+mean\b/i.test(q);
   if(itForm){ if(!lastKnowledgeWord) return null; q="what does "+lastKnowledgeWord+" mean"; }
-  const wantConv=looksLikeConversionQuery(q), wantTime=looksLikeTimeServiceQuery(q), wantLex=looksLikeLexiconQuery(q), wantDef=looksLikeDefinitionQuery(q);
-  if(!wantConv&&!wantTime&&!wantLex&&!wantDef) return null;
+  const wantCalc=looksLikeCalcQuery(q), wantConv=looksLikeConversionQuery(q), wantTime=looksLikeTimeServiceQuery(q), wantLex=looksLikeLexiconQuery(q), wantDef=looksLikeDefinitionQuery(q);
+  if(!wantCalc&&!wantConv&&!wantTime&&!wantLex&&!wantDef) return null;
+  if(wantCalc) ensureCalc();                 // no asset — registers instantly
   if(wantConv) ensureConversions();          // no asset — registers instantly
   if(wantTime) ensureTimeService();          // no asset — registers instantly
   if(wantLex) await ensureLexicon();

@@ -344,6 +344,14 @@ Tests: `run-knowledge-time`.
 > server) → Class 4 governed external (web · models). The model isn't getting bigger; the operating
 > system is.
 
+### Pack #5 — Calculation service (Class 1, self-verifiable) ✅
+`core/knowledge/calc.js` — arithmetic is exact, so the runtime computes it, model 0×, never sending
+"108273628+3747629" to a language model that will guess (the on-device repro: a big sum hit the 0.5B
+and came back as a garbled identity line). A **safe** evaluator (tokenizer → shunting-yard → RPN;
+**no eval/Function**) handles + - * / % ^, parentheses, unary minus, and "&lt;x&gt;% of &lt;y&gt;",
+pulling the arithmetic out of a noisy question ("whats 5+5=y" → 5+5). Non-math falls through (null).
+Tests: `run-knowledge-calc`.
+
 ---
 
 ## 8. Output Guards — the runtime validates what the model says
