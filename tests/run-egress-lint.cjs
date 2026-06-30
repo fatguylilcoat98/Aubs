@@ -22,6 +22,12 @@ const ALLOW = new Set([GATEWAY, ...Object.keys(MIGRATION_DEBT)]);
 const SKIP_DIR = new Set(["node_modules", ".git", "tests", "fonts"]);
 const SKIP_FILE = new Set(["build/bundle.js", "public/bundle.js"]);
 const NET = /\bfetch\s*\(|\bXMLHttpRequest\b|new\s+WebSocket\b|navigator\.sendBeacon\b|\bEventSource\b/;
+// A same-origin app-asset load is NOT egress: the gateway governs sending data OUT to a THIRD
+// PARTY. A fetch() with a RELATIVE STRING LITERAL (not http(s): and not //) can only hit our own
+// origin — it is the app loading its own asset (the service worker even caches it), exactly like a
+// <script>/<link>. We exempt ONLY that precise shape; an absolute or DYNAMIC fetch(...) URL is
+// still egress and must go through the door.
+const LOCAL_ASSET_FETCH = /\bfetch\s*\(\s*["'`](?!https?:|\/\/)[^"'`]+["'`]/g;
 
 function walk(dir, out) {
   for (const name of fs.readdirSync(dir)) {
@@ -41,8 +47,17 @@ const files = walk(ROOT, []);
 const offenders = [];
 for (const rel of files) {
   const src = fs.readFileSync(path.join(ROOT, rel), "utf8");
-  if (NET.test(src) && !ALLOW.has(rel)) offenders.push(rel);
+  // Strip same-origin relative-literal asset fetches before scanning — they are not egress.
+  const scanned = src.replace(LOCAL_ASSET_FETCH, " ");
+  if (NET.test(scanned) && !ALLOW.has(rel)) offenders.push(rel);
 }
+
+// Self-check the exemption rule so it can't silently widen into a loophole: a relative literal is
+// allowed, but an absolute or dynamic URL is still caught.
+function isEgress(snippet) { return NET.test(snippet.replace(LOCAL_ASSET_FETCH, " ")); }
+t("exemption is sound: relative-literal fetch is NOT egress", isEgress('fetch("assets/lexicon/words_alpha.txt")') === false);
+t("exemption is tight: absolute-URL fetch IS still egress", isEgress('fetch("https://evil.example/x")') === true);
+t("exemption is tight: dynamic/variable fetch IS still egress", isEgress('fetch(url)') === true);
 
 t("the gateway exists and is the declared single door", fs.existsSync(path.join(ROOT, GATEWAY)));
 t("NO network primitive outside the gateway or the tracked migration-debt allowlist",

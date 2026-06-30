@@ -1,0 +1,3 @@
+Source: dwyl/english-words (https://github.com/dwyl/english-words)
+License: The Unlicense (public domain)
+words_alpha.txt — lowercase alpha-only English words, normalized to LF.
