@@ -297,6 +297,16 @@ deterministic did-you-mean from the set), *"how many words do you know?"* — se
 This pack establishes the **rail** (loader · proof-class tagging · responder · Glass Box · flag · CI)
 so every later corpus is "just another pack" on a trustworthy track. Tests: `run-knowledge-lexicon`.
 
+### Pack #2 — Definitions (Class 2, grounded/CITED) ✅
+`core/knowledge/definitions.js`, data `assets/definitions/webster.tsv` (Webster's Unabridged
+Dictionary 1913, **public domain**, 85,680 entries, compacted to primary glosses). Answers
+*"what does X mean?" / "define X"* — but at the **honest** strength: every answer is **cited**
+(*"According to Webster's Dictionary (1913), X means: …"*) and carries proof class **grounded**,
+never self-verifiable. An unknown word returns an honest cited absence, **not** an invented
+definition. This is the first **Class-2** pack — it proves the cited-source rail the same way the
+lexicon proved the self-verifiable one. Conversational deixis ("what does **it** mean") is resolved
+by the **runtime** from the last word asked about, not by the model. Tests: `run-knowledge-definitions`.
+
 ---
 
 ## 8. Output Guards — the runtime validates what the model says

@@ -1,0 +1,3 @@
+Source: Webster's Unabridged Dictionary (1913) — public domain
+Via: github.com/adambom/dictionary (public domain)
+Format: <lowercase word>\t<primary gloss>, one per line (LF). Compacted to first sense, capped.

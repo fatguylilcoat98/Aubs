@@ -6,7 +6,7 @@
    - Cross-origin (model CDN, esm.run, fonts): never intercepted —
      WebLLM caches the model itself.
    Bump CACHE to force clients onto fresh code. */
-const CACHE = "aubs-shell-v30";
+const CACHE = "aubs-shell-v31";
 const STATIC = [
   "./manifest.json","./icon-192.png","./icon-512.png",
   "./apple-touch-icon.png","./favicon.png","./aubs-landing-art.png",
@@ -29,9 +29,9 @@ const STATIC = [
   "./core/facts/registry.js","./core/facts/classifier.js","./core/facts/gate.js","./core/facts/provenance.js","./core/facts/bundle.js",
   // Persona System v1 — personality as owned runtime state (resolve/compile/guard).
   "./core/persona/persona.js",
-  // Knowledge Layer — pack registry + lexicon (Pack #1). The 3.9MB word list is NOT precached;
-  // it is runtime-cached (cache-first) on first lexicon query → offline after first use.
-  "./core/knowledge/registry.js","./core/knowledge/lexicon.js",
+  // Knowledge Layer — pack registry + lexicon (Pack #1) + definitions (Pack #2). The multi-MB
+  // corpora are NOT precached; they are runtime-cached (cache-first) on first use → offline after.
+  "./core/knowledge/registry.js","./core/knowledge/lexicon.js","./core/knowledge/definitions.js",
   "./core/trust/strengths.js","./core/trust/hash.js","./core/trust/trust-record.js","./core/trust/memory-types.js","./core/trust/reasoning-permission.js","./core/trust/egress.js","./core/trust/egress-ledger.js","./core/trust/decision-trace.js","./core/trust/check-order.js","./core/trust/proofs/integrity.js","./core/trust/proofs/provenance.js","./core/trust/proofs/grounding.js","./core/trust/proofs/decision.js","./core/trust/proofs/privacy.js","./core/trust/proofs/memory.js","./core/trust/verifier.js","./core/trust/glass-box.js","./core/trust/index.js",
   "./core/constitution/explain.js","./core/constitution/graph.js","./core/constitution/pipeline.js","./core/constitution/audit.js","./core/constitution/index.js","./core/constitution/chat.js",
   "./fonts.css",
