@@ -1336,8 +1336,9 @@ async function runModelTurnThroughConstitution(text, sent, bubble, aiWrap, t0, r
       // publicKey upgrades Integrity to a full offline chain re-verify; runtime carries creator/version.
       trustOS:trustOsOn(), publicKey:(c&&c.keys)?c.keys.publicKey:null, runtime:aubsRuntimeMetaFull(),
       // Memory-first (§7): owned memories handed to the governed-fact gate so stored personal facts
-      // are answered model 0× (with a Trust Record) before the model is ever consulted.
-      memoryEntries:routerEntries
+      // are answered model 0× (with a Trust Record) before the model is ever consulted. Computed
+      // from the module-global `memories` (this helper runs outside window.send's local scope).
+      memoryEntries:((typeof SPINE!=="undefined"&&SPINE&&SPINE.adaptMemories)?SPINE.adaptMemories(memories):[])
       // bundle omitted → pipeline uses the default-allow-local bundle (local chat is allowed)
     });
   }catch(e){
