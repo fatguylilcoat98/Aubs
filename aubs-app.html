@@ -1147,10 +1147,25 @@ function gpuDiagStr(){
 // never select them — even on Smart. Big models are desktop/high-memory only.
 const PHONE_SAFE=/Qwen2\.5-0\.5B-Instruct|Qwen2-0\.5B-Instruct|SmolLM2-360M-Instruct/i;
 const PHONE_SAFE_FALLBACK=["Qwen2.5-0.5B-Instruct-q4f16_1-MLC","SmolLM2-360M-Instruct-q4f16_1-MLC","Qwen2.5-0.5B-Instruct-q4f32_1-MLC"];
+// SMALL-VOCAB larger models: the binding cap is vocab×hidden, not params, so these may fit the
+// Adreno ~128MB cap DESPITE more parameters (Phi: ~32k vocab; SmolLM: ~49k). Opt-in for on-device
+// testing via ?big=1 (the default stays 0.5B-safe until a device proves one of these loads).
+const SMALL_VOCAB_BIG=[
+  "Phi-3.5-mini-instruct-q4f16_1-MLC","Phi-3.5-mini-instruct-q4f32_1-MLC",
+  "Phi-3-mini-4k-instruct-q4f16_1-MLC","Phi-3-mini-4k-instruct-q4f32_1-MLC",
+  "SmolLM2-1.7B-Instruct-q4f16_1-MLC","SmolLM2-1.7B-Instruct-q4f32_1-MLC"
+];
+function urlParam(k){ try{ return (new URLSearchParams(location.search).get(k)||"").trim(); }catch(_){ return ""; } }
 function resolve(tier){
+  // ?model=<exact-or-substring> — force a specific WebLLM model (bypasses the cap; for testing what
+  // the device can actually run). e.g. ?model=Phi-3.5-mini-instruct-q4f16_1-MLC
+  const ov=urlParam('model');
+  if(ov){ const hit=AVAILABLE.find(id=>id===ov)||AVAILABLE.find(id=>id.toLowerCase().includes(ov.toLowerCase())); if(hit) return hit; }
   const order=hasF16?[...MODELS[tier].f16,...MODELS[tier].f32]:[...MODELS[tier].f32,...MODELS[tier].f16];
   if(bindingTight()){
-    // Phone GPU: restrict to crash-safe models regardless of tier (Smart can't crash you).
+    // ?big=1 — try a curated SMALL-VOCAB larger model (may fit the cap). Opt-in; recovery still guards it.
+    if(urlParam('big')==='1'){ const big=SMALL_VOCAB_BIG.find(id=>AVAILABLE.includes(id)); if(big) return big; }
+    // Default phone GPU: restrict to crash-safe 0.5B-class regardless of tier (Smart can't crash you).
     const safe=order.filter(id=>PHONE_SAFE.test(id)).find(id=>AVAILABLE.includes(id));
     if(safe) return safe;
     const fb=PHONE_SAFE_FALLBACK.find(id=>AVAILABLE.includes(id));
