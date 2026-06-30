@@ -418,6 +418,7 @@ body{background:var(--bgbase);color:var(--ink);font-family:var(--font-body);
 <script src="core/knowledge/lexicon.js"></script>
 <script src="core/knowledge/definitions.js"></script>
 <script src="core/knowledge/conversions.js"></script>
+<script src="core/knowledge/time.js"></script>
 <!-- Trust OS (Layers 1–9). Classic scripts: define window.AUBS_* globals only; inert unless
      FLAG_TRUST_OS (?trust=1). Load after spine/ledger + facts, before pipeline.js (reads AUBS_TRUST). -->
 <script src="core/trust/strengths.js"></script>
@@ -634,13 +635,20 @@ try{
   if(qp.get('know')==='0'){ FLAG_KNOWLEDGE=false; try{ localStorage.removeItem('aubs_know'); }catch(_){} }
   if(qp.get('know')==='1'){ try{ localStorage.setItem('aubs_know','1'); }catch(_){} }
 }catch(e){}
-let __lexiconPack=null, __lexiconLoading=null, __defPack=null, __defLoading=null, __convPack=null, lastKnowledgeWord=null;
-function knowledgeOn(){ return !!(FLAG_KNOWLEDGE && typeof window!=="undefined" && window.AUBS_KNOWLEDGE && window.AUBS_LEXICON && window.AUBS_DEFINITIONS && window.AUBS_CONVERSIONS); }
+let __lexiconPack=null, __lexiconLoading=null, __defPack=null, __defLoading=null, __convPack=null, __timePack=null, lastKnowledgeWord=null;
+function knowledgeOn(){ return !!(FLAG_KNOWLEDGE && typeof window!=="undefined" && window.AUBS_KNOWLEDGE && window.AUBS_LEXICON && window.AUBS_DEFINITIONS && window.AUBS_CONVERSIONS && window.AUBS_TIME); }
 // Conversion service (Class 1, self-verifiable) — pure computation, NO asset, registers instantly.
 function ensureConversions(){
   if(!knowledgeOn()) return null;
   if(!__convPack){ try{ __convPack=window.AUBS_CONVERSIONS.makePack(); window.AUBS_KNOWLEDGE.register(__convPack); }catch(_){} }
   return __convPack;
+}
+// Time service (Class 1, self-verifiable) — timezones / relative dates / local tz. NO asset; reads
+// the LIVE device clock via the now() closure, so registering once stays current.
+function ensureTimeService(){
+  if(!knowledgeOn()) return null;
+  if(!__timePack){ try{ __timePack=window.AUBS_TIME.makePack({ now:function(){ return new Date(); } }); window.AUBS_KNOWLEDGE.register(__timePack); }catch(_){} }
+  return __timePack;
 }
 // Lazy-load + register the lexicon pack once (Pack #1, Class 1). 3.9MB, fetched on first use.
 function ensureLexicon(){
@@ -687,6 +695,12 @@ function looksLikeConversionQuery(t){
   return /(?:convert\s+)?-?\d+(?:\.\d+)?\s*[a-z°/]+\s+(?:in|into|to|as)\s+[a-z°/]+/i.test(s)
       || /\bhow many\s+[a-z°/]+\s+(?:are\s+)?(?:in|per)\s+-?\d+/i.test(s);
 }
+function looksLikeTimeServiceQuery(t){
+  const s=String(t||"");
+  return /\b(?:what(?:'?s| is)\s+the\s+time|what\s+time\s+is\s+it|current\s+time|time)\s+(?:in|at)\s+[a-z]/i.test(s)   // time in <place>
+      || /\bwhat(?:'?s| is)\s+my\s+time\s*zone\b/i.test(s) || /\bwhat\s+time\s*zone\s+am\s+i\s+in\b/i.test(s)         // my timezone
+      || /\b(?:tomorrow|yesterday)\b/i.test(s);                                                                       // relative dates
+}
 // Pull the concrete word a knowledge turn is about (for "what does IT mean" context resolution).
 function extractKnowledgeWord(s){
   let m;
@@ -704,9 +718,10 @@ async function knowledgeAnswer(text){
   let q=String(text||"");
   const itForm=/\bwhat(?:'?s| is| does| do)?\s+it\s+mean\b/i.test(q)||/\bdefine\s+it\b/i.test(q)||/\bwhat'?s\s+it\s+mean\b/i.test(q);
   if(itForm){ if(!lastKnowledgeWord) return null; q="what does "+lastKnowledgeWord+" mean"; }
-  const wantConv=looksLikeConversionQuery(q), wantLex=looksLikeLexiconQuery(q), wantDef=looksLikeDefinitionQuery(q);
-  if(!wantConv&&!wantLex&&!wantDef) return null;
+  const wantConv=looksLikeConversionQuery(q), wantTime=looksLikeTimeServiceQuery(q), wantLex=looksLikeLexiconQuery(q), wantDef=looksLikeDefinitionQuery(q);
+  if(!wantConv&&!wantTime&&!wantLex&&!wantDef) return null;
   if(wantConv) ensureConversions();          // no asset — registers instantly
+  if(wantTime) ensureTimeService();          // no asset — registers instantly
   if(wantLex) await ensureLexicon();
   if(wantDef) await ensureDefinitions();
   let r=null; try{ r=window.AUBS_KNOWLEDGE.ask(q); }catch(_){}
