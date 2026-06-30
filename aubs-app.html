@@ -417,6 +417,7 @@ body{background:var(--bgbase);color:var(--ink);font-family:var(--font-body);
 <script src="core/knowledge/registry.js"></script>
 <script src="core/knowledge/lexicon.js"></script>
 <script src="core/knowledge/definitions.js"></script>
+<script src="core/knowledge/conversions.js"></script>
 <!-- Trust OS (Layers 1–9). Classic scripts: define window.AUBS_* globals only; inert unless
      FLAG_TRUST_OS (?trust=1). Load after spine/ledger + facts, before pipeline.js (reads AUBS_TRUST). -->
 <script src="core/trust/strengths.js"></script>
@@ -633,8 +634,14 @@ try{
   if(qp.get('know')==='0'){ FLAG_KNOWLEDGE=false; try{ localStorage.removeItem('aubs_know'); }catch(_){} }
   if(qp.get('know')==='1'){ try{ localStorage.setItem('aubs_know','1'); }catch(_){} }
 }catch(e){}
-let __lexiconPack=null, __lexiconLoading=null, __defPack=null, __defLoading=null, lastKnowledgeWord=null;
-function knowledgeOn(){ return !!(FLAG_KNOWLEDGE && typeof window!=="undefined" && window.AUBS_KNOWLEDGE && window.AUBS_LEXICON && window.AUBS_DEFINITIONS); }
+let __lexiconPack=null, __lexiconLoading=null, __defPack=null, __defLoading=null, __convPack=null, lastKnowledgeWord=null;
+function knowledgeOn(){ return !!(FLAG_KNOWLEDGE && typeof window!=="undefined" && window.AUBS_KNOWLEDGE && window.AUBS_LEXICON && window.AUBS_DEFINITIONS && window.AUBS_CONVERSIONS); }
+// Conversion service (Class 1, self-verifiable) — pure computation, NO asset, registers instantly.
+function ensureConversions(){
+  if(!knowledgeOn()) return null;
+  if(!__convPack){ try{ __convPack=window.AUBS_CONVERSIONS.makePack(); window.AUBS_KNOWLEDGE.register(__convPack); }catch(_){} }
+  return __convPack;
+}
 // Lazy-load + register the lexicon pack once (Pack #1, Class 1). 3.9MB, fetched on first use.
 function ensureLexicon(){
   if(!knowledgeOn()) return Promise.resolve(null);
@@ -675,6 +682,11 @@ function looksLikeDefinitionQuery(t){
   return /\bwhat\s+(?:does|do)\s+[a-z][a-z'-]*\s+mean\b/i.test(s)
       || /\b(?:define|definition\s+of|meaning\s+of|what'?s\s+the\s+meaning\s+of|what\s+is\s+the\s+(?:definition|meaning)\s+of)\s+["']?[a-z]/i.test(s);
 }
+function looksLikeConversionQuery(t){
+  const s=String(t||"");
+  return /(?:convert\s+)?-?\d+(?:\.\d+)?\s*[a-z°/]+\s+(?:in|into|to|as)\s+[a-z°/]+/i.test(s)
+      || /\bhow many\s+[a-z°/]+\s+(?:are\s+)?(?:in|per)\s+-?\d+/i.test(s);
+}
 // Pull the concrete word a knowledge turn is about (for "what does IT mean" context resolution).
 function extractKnowledgeWord(s){
   let m;
@@ -692,8 +704,9 @@ async function knowledgeAnswer(text){
   let q=String(text||"");
   const itForm=/\bwhat(?:'?s| is| does| do)?\s+it\s+mean\b/i.test(q)||/\bdefine\s+it\b/i.test(q)||/\bwhat'?s\s+it\s+mean\b/i.test(q);
   if(itForm){ if(!lastKnowledgeWord) return null; q="what does "+lastKnowledgeWord+" mean"; }
-  const wantLex=looksLikeLexiconQuery(q), wantDef=looksLikeDefinitionQuery(q);
-  if(!wantLex&&!wantDef) return null;
+  const wantConv=looksLikeConversionQuery(q), wantLex=looksLikeLexiconQuery(q), wantDef=looksLikeDefinitionQuery(q);
+  if(!wantConv&&!wantLex&&!wantDef) return null;
+  if(wantConv) ensureConversions();          // no asset — registers instantly
   if(wantLex) await ensureLexicon();
   if(wantDef) await ensureDefinitions();
   let r=null; try{ r=window.AUBS_KNOWLEDGE.ask(q); }catch(_){}
