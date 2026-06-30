@@ -35,6 +35,13 @@ t("letters in expression rejected (no code-injection surface)", pack.respond("2 
 t("division by zero → null (honest, not Infinity)", pack.respond("5 / 0") === null);
 t("'is xylophone a word' (lexicon, not calc) → null", pack.respond("is xylophone a word") === null);
 
+// ── AUDIT REGRESSION: prose with hyphenated numbers/dates/scores must NOT be parsed as math ────
+t("'what happened in 1939-1945' → null (a date range, not subtraction)", pack.respond("what happened in 1939-1945") === null);
+t("'the years 2020-2024' → null", pack.respond("the years 2020-2024") === null);
+t("'I scored 7/10 on the test' → null (not division)", pack.respond("I scored 7/10 on the test") === null);
+t("'call me at 555-1234' → null (a phone number)", pack.respond("call me at 555-1234") === null);
+t("but a clean expression still works after a lead-in: 'what is 12/4' → 3", ans("what is 12/4") === "12/4 = 3.");
+
 // ── safety: evaluate never executes arbitrary code ───────────────────────────────────────────
 t("evaluate rejects non-arithmetic input", C.evaluate("process.exit(1)") === null);
 

@@ -74,10 +74,17 @@
   function parseActivation(text) {
     var raw = String(text || "").trim();
     if (!raw) return null;
+    // Did the user ask to PERFORM a someone/something ("talk like X", "channel X", "impersonate X")?
+    // If so it's an impression even when typed lowercase ("talk like homer") — the model performs the
+    // figure; the dictionary must NOT comprehend the name as a common word.
+    var performed = LEADIN_VERB.test(raw) ||
+      /^\s*(?:please\s+)?(?:channel|impersonate|imitate|in\s+the\s+style\s+of|in\s+the\s+voice\s+of|pretend\s+to\s+be)\b/i.test(raw);
     var s = raw.replace(LEADIN_VERB, "").replace(LEADIN_BE, "").replace(/^\s*(?:like|as)\s+/i, "")
                .replace(/[.!]+\s*$/, "").trim();
     if (!s) s = raw;
-    return { subject: s, mode: detectMode(s) };
+    var mode = detectMode(s);
+    if (performed && mode === "register") mode = "impression";   // a performed bare/lowercase name → impression
+    return { subject: s, mode: mode };
   }
 
   // Resolve a persona from a built-in id, a partial override object, or ANY free-text request.
@@ -114,7 +121,10 @@
     if (p.mode === "impression") return [];               // proper name → model's job, not the dictionary's
     var raw = [];
     if (p.subject) addWords(p.subject, raw);               // "a vampire" → vampire; "cheerful" → cheerful
-    if (p.voice && p.voice.tone) addWords(p.voice.tone, raw);  // built-in tones (firm, candid, …)
+    // ONLY comprehend the built-in voice tone for a BUILT-IN persona (no custom subject/directive).
+    // Custom personas inherit DEFAULT.voice.tone ("warm, direct, plainspoken") via Object.assign —
+    // comprehending those would inject words the user never asked for.
+    else if (!p.custom_directive && p.voice && p.voice.tone) addWords(p.voice.tone, raw);
     if (p.custom_directive && !p.subject) addWords(p.custom_directive, raw);
     var seen = {}, out = [];
     for (var i = 0; i < raw.length && out.length < 6; i++) if (!seen[raw[i]]) { seen[raw[i]] = 1; out.push(raw[i]); }

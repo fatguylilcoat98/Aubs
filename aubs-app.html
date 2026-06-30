@@ -620,12 +620,12 @@ async function ensurePersonaComprehension(p, key){
   __personaCompPending=key;
   try{
     await ensureDefinitions();
-    if(__defPack){
-      const c=window.AUBS_PERSONA.comprehendPersona(p, __defPack.define);
-      __personaCompKey=key; __personaCompMeanings=(c&&c.comprehension)||[];
-      if(typeof rebuildSystemPrompt==="function") rebuildSystemPrompt();   // fold meanings into the live prompt
-    }
-  }catch(_){}
+    const c=__defPack ? window.AUBS_PERSONA.comprehendPersona(p, __defPack.define) : null;
+    // Cache the key either way (negative-cache on failure) so a failed dict fetch is NOT retried
+    // every single prompt build.
+    __personaCompKey=key; __personaCompMeanings=(c&&c.comprehension)||[];
+    if(__defPack && typeof rebuildSystemPrompt==="function") rebuildSystemPrompt();  // fold meanings in
+  }catch(_){ __personaCompKey=key; __personaCompMeanings=[]; }
   __personaCompPending=null;
 }
 // Compiled persona instruction for Tier-1 injection (empty string when off → byte-identical prompt).
@@ -633,13 +633,16 @@ function compiledPersona(){
   if(!personaOn()) return "";
   try{
     var p=activePersona(); if(!p) return "";
-    // Comprehension (only when the Knowledge Layer is on): attach cached dictionary meanings for the
-    // persona's descriptive words; otherwise kick off the async lookup + prompt rebuild.
-    if(typeof knowledgeOn==="function" && knowledgeOn() && window.AUBS_PERSONA.personaDescriptors){
+    // Comprehension (only when the Knowledge Layer is on AND the user actually CUSTOMIZED the persona).
+    // The default persona must NOT trigger a dictionary fetch on cold load — that was a silent 4.7MB
+    // download before the user typed anything. Built-in selection (?persona=coach), a free-text
+    // persona, or a saved style note all count as customized.
+    var customized = !!(PERSONA_SEL || (typeof S!=="undefined" && S && S.instructions && S.instructions.trim()) || p.subject || p.custom_directive);
+    if(customized && typeof knowledgeOn==="function" && knowledgeOn() && window.AUBS_PERSONA.personaDescriptors){
       var descs=window.AUBS_PERSONA.personaDescriptors(p);
       if(descs.length){
         var key=descs.join(",");
-        if(__personaCompKey===key && __personaCompMeanings){ if(__personaCompMeanings.length) p=Object.assign({},p,{comprehension:__personaCompMeanings}); }
+        if(__personaCompKey===key){ if(__personaCompMeanings && __personaCompMeanings.length) p=Object.assign({},p,{comprehension:__personaCompMeanings}); }
         else { ensurePersonaComprehension(p, key); }
       }
     }
@@ -664,7 +667,9 @@ try{
   if(AUBS_SAFE || qp.get('know')==='0'){ FLAG_KNOWLEDGE=false; try{ localStorage.removeItem('aubs_know'); }catch(_){} }
 }catch(e){}
 let __lexiconPack=null, __lexiconLoading=null, __defPack=null, __defLoading=null, __convPack=null, __timePack=null, __calcPack=null, lastKnowledgeWord=null;
-function knowledgeOn(){ return !!(FLAG_KNOWLEDGE && typeof window!=="undefined" && window.AUBS_KNOWLEDGE && window.AUBS_LEXICON && window.AUBS_DEFINITIONS && window.AUBS_CONVERSIONS && window.AUBS_TIME && window.AUBS_CALC); }
+// Only the registry is required; each ensure* helper verifies its own pack global, so a single
+// missing pack script disables only that pack — not the whole layer (and not the no-asset calc/time).
+function knowledgeOn(){ return !!(FLAG_KNOWLEDGE && typeof window!=="undefined" && window.AUBS_KNOWLEDGE); }
 // Conversion service (Class 1, self-verifiable) — pure computation, NO asset, registers instantly.
 function ensureConversions(){
   if(!knowledgeOn()) return null;
@@ -1182,7 +1187,7 @@ let engine=null, chosenModel=null, currentTier='fast';
 // is unchanged; only the engine differs. ?engine=<baseURL> [&engineModel=<id>]. A localhost engine
 // is on-device (nothing leaves the phone); a remote one is network egress (surfaced honestly).
 let endpointActive=false, endpointBase="", endpointModel="", endpointKind="";
-function endpointWanted(){ const e=urlParam('engine'); return e ? (/^https?:\/\//.test(e) ? e : ("http://"+e)) : ""; }
+function endpointWanted(){ const e=urlParam('engine'); if(!e||e==='0') return ""; return /^https?:\/\//.test(e) ? e : ("http://"+e); }
 // Unified model completion: the endpoint when active, else the WebLLM engine. Both return {text,finish}.
 async function modelComplete(messages, opts){
   opts=opts||{};
@@ -1293,7 +1298,7 @@ function crisisBackstop(text, bubble){
 }
 window.send=async function(){
   const box=document.getElementById('box'); const text=box.value.trim();
-  if(!text||!engine) return;
+  if(!text || (!engine && !endpointActive)) return;   // endpoint mode has no WebGPU `engine`
   if(window.__busy) return;            // hard lock: ignore taps while a reply is generating
   window.__busy=true;
   const thread=document.getElementById('thread'); const sendBtn=document.getElementById('sendBtn');
@@ -1310,7 +1315,10 @@ window.send=async function(){
   // FLAG_ROUTER — Response Quality Layer v1: deterministic answer BEFORE the model (skipped if blocked).
   const routerOn=!!(SPINE&&SPINE.FLAGS&&SPINE.FLAGS.FLAG_ROUTER);
   const routerEntries=(SPINE&&SPINE.adaptMemories)?SPINE.adaptMemories(memories):[];
-  const routed=(!gate.blocked && routerOn&&SPINE.routeQuery)?SPINE.routeQuery(text,{ entries:routerEntries, persona:S.aiName, instructions:S.instructions }):null;
+  // Defensive: these run BEFORE the try/finally that releases __busy, so any throw here would
+  // strand the lock and silently kill all future sends. Wrap each so it can never escape.
+  let routed=null;
+  try{ if(!gate.blocked && routerOn && SPINE.routeQuery) routed=SPINE.routeQuery(text,{ entries:routerEntries, persona:S.aiName, instructions:S.instructions }); }catch(_){ routed=null; }
   // A2 — GOVERNED-FACT REGISTRY: the FIRST pre-model owner. Computed before the model; the
   // gf branch below is checked before the router so the registry has first refusal over identity.
   // Inline governed-fact answer is used ONLY when we are NOT routing through the constitutional
@@ -1319,10 +1327,13 @@ window.send=async function(){
   // the creator/runtime metadata flows through one path. (Also lets "what do you know about me"
   // reach the pipeline memory stage instead of a dead-end.)
   const useInlineGovernedFacts = governedFactsOn() && !(constitutionChatOn() && trustOsOn());
-  const gf=(!gate.blocked && useInlineGovernedFacts)?window.AUBS_FACT_GATE.governedFactGate(text,{ resolved:governedFactResolved(), runtime:aubsRuntimeMetaFull(), entries:routerEntries, enabled:true }):{handled:false};
+  let gf={handled:false};
+  try{ if(!gate.blocked && useInlineGovernedFacts) gf=window.AUBS_FACT_GATE.governedFactGate(text,{ resolved:governedFactResolved(), runtime:aubsRuntimeMetaFull(), entries:routerEntries, enabled:true }); }catch(_){ gf={handled:false}; }
   // KNOWLEDGE LAYER (6b) — owned corpora answer before the model (model 0×). Lazy-loads the pack
   // only on a plausible lexicon query (see knowledgeAnswer). Not handled → null → flows on.
-  const know=(!gate.blocked && !gf.handled)?await knowledgeAnswer(text):null;
+  // .catch so a failed asset fetch can never strand the busy-lock (this runs before the try).
+  let know=null;
+  try{ if(!gate.blocked && !gf.handled) know=await knowledgeAnswer(text); }catch(_){ know=null; }
   const RECOVERABLE=/GPUBuffer|mapAsync|unmapped|device is lost|Device is lost|disposed|not loaded|reload\(/i;
   try{
     if(gate.blocked){
@@ -1453,7 +1464,8 @@ window.send=async function(){
       }   /* end else (non-kernel model path) */
     }
   }finally{
-    window.__busy=false; sendBtn.disabled=false; document.getElementById('box').focus(); thread.scrollTop=thread.scrollHeight;
+    window.__busy=false;
+    try{ if(sendBtn) sendBtn.disabled=false; const _b=document.getElementById('box'); if(_b) _b.focus(); if(thread) thread.scrollTop=thread.scrollHeight; }catch(_){}
   }
 };
 /* ── Milestone 4 — run one model turn through the kernel (only when FLAG_KERNEL_CHAT). ──

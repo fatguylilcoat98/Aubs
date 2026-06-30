@@ -87,6 +87,15 @@ t("resolve partial override merges onto a built-in", P.resolvePersona({ id: "fri
   // built-in persona → comprehends its voice tone words
   const coach = P.comprehendPersona(P.PERSONAS.coach, (w) => ({ firm: "Securely fixed; resolute." }[w] || null));
   t("built-in persona comprehends a voice-tone word", coach.comprehension && coach.comprehension[0].word === "firm");
+
+  // AUDIT REGRESSION: a custom persona must NOT leak the DEFAULT tone words (warm/direct/plainspoken)
+  t("custom persona descriptors do NOT include inherited DEFAULT tone words",
+    P.personaDescriptors(P.resolvePersona("be cheerful")).join(",") === "cheerful");
+  t("character descriptors are just the subject, not DEFAULT tone",
+    P.personaDescriptors(P.resolvePersona("you're a vampire")).indexOf("warm") < 0);
+  // AUDIT REGRESSION: a performed lowercase name ("talk like homer") is an impression → NOT dictionary-comprehended
+  t("'talk like homer' → impression (not a register), so the name isn't comprehended as a common word",
+    P.resolvePersona("talk like homer").mode === "impression" && P.personaDescriptors(P.resolvePersona("talk like homer")).length === 0);
 }
 
 // ── persona guard strips model-identity / AI-disclaimer leaks ────────────────────────────────

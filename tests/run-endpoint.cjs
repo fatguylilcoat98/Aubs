@@ -36,6 +36,10 @@ t("isLocal true only for loopback", E.isLocal("http://localhost:8080") && !E.isL
     t("chat hits {base}/chat/completions", /\/chat\/completions$/.test(seen.url));
     t("chat sends OpenAI body (model + messages + stream:false)", seen.body.model === "llama3.2:3b" && Array.isArray(seen.body.messages) && seen.body.stream === false);
     t("chat parses choices[0].message.content", r.text === "Hello from a local model." && r.finish === "stop");
+    // AUDIT REGRESSION: array-shaped content ([{type:'text',text:'…'}]) must be joined, not "[object Object]"
+    const fa = () => Promise.resolve(ok({ choices: [{ message: { content: [{ type: "text", text: "part A " }, { type: "text", text: "part B" }] }, finish_reason: "stop" }] }));
+    const ra = await E.chat("http://localhost:11434/v1", "m", [{ role: "user", content: "hi" }], {}, fa);
+    t("chat joins array-shaped content (no '[object Object]')", ra.text === "part A part B");
   }
 
   // ── discover: reachable servers come back with models; unreachable are marked, never throw ──
