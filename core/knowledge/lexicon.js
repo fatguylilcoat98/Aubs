@@ -53,17 +53,37 @@
       return out.slice(0, limit);
     }
 
+    // Filler pronouns the meta-question uses ("is THIS a word?") — never the word being asked about.
+    var FILLER = { this: 1, that: 1, it: 1, these: 1, those: 1 };
+
+    // Pull the actual candidate word out of a "is X a word" question. Handles the trailing
+    // meta-form "<X> is this/that a word?" (where the word comes BEFORE "is"), and rejects the
+    // filler pronoun so "Itsghsjsjjdhjsjs is this a word?" checks the gibberish, not "this".
+    function candidate(s) {
+      var m;
+      // "<X> is this/that/it a word" → X (the token before "is")
+      if ((m = s.match(/\b([a-zA-Z][a-zA-Z'-]*)\s+is\s+(?:this|that|it|these|those)\s+(?:a\s+)?(?:real\s+|valid\s+|english\s+)?word\b/i)))
+        return m[1];
+      // "is <X> a word" / "is <X> spelled right" / "is <X> in the dictionary"
+      if ((m = s.match(/\bis\s+["']?([a-zA-Z][a-zA-Z'-]*)["']?\s+(?:a\s+)?(?:real\s+|valid\s+|english\s+)?word\b/i))
+        || (m = s.match(/\bis\s+["']?([a-zA-Z][a-zA-Z'-]*)["']?\s+spelled\s+(?:right|correctly)\b/i))
+        || (m = s.match(/\bis\s+["']?([a-zA-Z][a-zA-Z'-]*)["']?\s+in\s+(?:the\s+|your\s+)?dictionary\b/i))) {
+        if (FILLER[m[1].toLowerCase()]) return null;   // "is this a word?" with no real subject → can't tell
+        return m[1];
+      }
+      return null;
+    }
+
     // Detector + responder. Returns { answer, proof, factId } | null.
     function respond(q) {
-      var s = String(q || ""), m;
+      var s = String(q || "");
       if (/\bhow many words (?:do you|does aubs|do u)\s+(?:know|have)\b/i.test(s)
         || /\bhow (?:big|large) is your (?:dictionary|lexicon|vocabulary|word ?list)\b/i.test(s))
         return { answer: "I know " + count.toLocaleString() + " English words.", proof: PROOF, factId: "lexicon:count" };
 
-      if ((m = s.match(/\bis\s+["']?([a-zA-Z][a-zA-Z'-]*)["']?\s+(?:a\s+)?(?:real\s+|valid\s+|english\s+)?word\b/i))
-        || (m = s.match(/\bis\s+["']?([a-zA-Z][a-zA-Z'-]*)["']?\s+spelled\s+(?:right|correctly)\b/i))
-        || (m = s.match(/\bis\s+["']?([a-zA-Z][a-zA-Z'-]*)["']?\s+in\s+(?:the\s+|your\s+)?dictionary\b/i))) {
-        var w = m[1].toLowerCase();
+      var cw = candidate(s);
+      if (cw) {
+        var w = cw.toLowerCase();
         if (isWord(w)) return { answer: "Yes — \"" + w + "\" is a word.", proof: PROOF, factId: "lexicon:isword" };
         var sg = suggest(w);
         return { answer: "No — \"" + w + "\" isn't in my dictionary." + (sg.length ? (" Did you mean: " + sg.join(", ") + "?") : ""), proof: PROOF, factId: "lexicon:isword" };

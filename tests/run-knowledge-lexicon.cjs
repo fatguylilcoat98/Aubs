@@ -36,6 +36,13 @@ t("suggest returns [] for a real word", lex.suggest("apple").length === 0);
   const cnt = lex.respond("how many words do you know?");
   t("respond count → 'I know 10 English words.'", cnt && /I know 10 English words\./.test(cnt.answer) && cnt.factId === "lexicon:count");
   t("respond non-lexicon question → null (falls through to the model)", lex.respond("write me a poem") === null);
+
+  // BUG REPRO (device): "<X> is this a word?" must check X, NOT the filler "this".
+  const meta = lex.respond("xylophonex is this a word?");
+  t("meta-form '<X> is this a word?' checks X, not 'this'", meta && /xylophonex/.test(meta.answer) && /isn't in my dictionary/.test(meta.answer));
+  const meta2 = lex.respond("apple is this a word?");
+  t("meta-form with a real word → Yes for that word", lex.respond("apple is this a word?").answer === 'Yes — "apple" is a word.');
+  t("bare 'is this a word?' (no real subject) → null, never 'Yes this'", lex.respond("is this a word?") === null);
 }
 
 // ── the registry rail: register, ask, and the no-silent-upgrade clamp ───────────────────────────

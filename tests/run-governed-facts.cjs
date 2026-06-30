@@ -41,7 +41,9 @@ const on = (over) => Object.assign({ resolved: TOM, enabled: true }, over);
   t("'What can you do?' → capabilities (NOT identity)", own("What can you do?").id === "capabilities");
   t("'What are your capabilities?' → capabilities", own("What are your capabilities?").id === "capabilities");
   t("'What does AUBS stand for?' → identity:acronym", own("What does AUBS stand for?").id === "identity:acronym");
-  // every owner answers from owned state — no model call on any matrix row
+  // BUG REPRO (device): a bare "what does it mean" follow-up must NOT mis-answer the AUBS acronym.
+  t("'What does it mean?' → NOT acronym (open-ended follow-up, not the AUBS expansion)",
+    own("What does it mean?").id !== "identity:acronym" && C.classify("What does it mean?", on()).type === "open_ended");
   t("ownership matrix: every governed answer is model 0×",
     ["What's your name?","Who are you?","Who made you?","Who created you?","What can you do?","What are your capabilities?","What does AUBS stand for?"]
       .every(q => own(q).mc === false && own(q).type === "governed_fact"));

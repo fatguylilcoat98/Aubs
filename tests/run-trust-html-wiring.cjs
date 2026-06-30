@@ -53,7 +53,10 @@ t("creator metadata is Christopher Hughes", /creator:"Christopher Hughes"/.test(
 {
   const sw = fs.readFileSync(path.join(ROOT, "sw.js"), "utf8");
   t("sw.js precaches the Trust OS + facts scripts (offline support)", /core\/trust\/index\.js/.test(sw) && /core\/facts\/registry\.js/.test(sw));
-  t("sw.js cache version bumped past v21", /aubs-shell-v2[2-9]/.test(sw));
+  // Extract the numeric cache version and require it to be past v21 (future-proof — the old
+  // /v2[2-9]/ regex silently failed at v30).
+  const cv = (sw.match(/aubs-shell-v(\d+)/) || [])[1];
+  t("sw.js cache version bumped past v21", cv != null && parseInt(cv, 10) >= 22);
 }
 
 console.log("\nAssertions: " + pass + "/" + (pass + fail));

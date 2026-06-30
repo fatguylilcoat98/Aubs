@@ -134,7 +134,13 @@
 
   // ── Detectors for the five governed routes (used only on the resolved path) ──────────────
   function isAcronymQuery(q) {
-    return /\b(stands? for|acronym|abbreviation|what does (?:aubs|it) (?:stand for|mean))\b/i.test(String(q || ""));
+    // Must clearly be about the NAME/acronym — not a bare "what does it mean" follow-up about
+    // some other thing (that used to mis-answer the AUBS expansion). "stand for" carries acronym
+    // semantics; "mean" requires the explicit subject (AUBS / the name / the acronym).
+    var s = String(q || "");
+    return /\b(?:acronym|abbreviation)\b/i.test(s)
+        || /\bstands?\s+for\b/i.test(s)
+        || /\bwhat\s+does\s+(?:aubs|the\s+name|the\s+acronym)\s+mean\b/i.test(s);
   }
   function isUserNameQuery(q) {
     var s = String(q || "");
