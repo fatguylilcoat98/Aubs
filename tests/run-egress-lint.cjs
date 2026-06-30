@@ -14,6 +14,7 @@ const GATEWAY = "core/trust/egress.js";
 // wire is attached. Listed explicitly so the lint passes today AND the debt stays visible.
 const MIGRATION_DEBT = {
   "core/providers/openai-adapter.js": "model transport — migrate behind egress() at wire-up",
+  "core/providers/endpoint.js": "model endpoint transport (local/remote OpenAI-compatible) — route behind egress() at wire-up",
   "sw.js": "PWA service worker fetch — audit/route at wire-up"
 };
 const ALLOW = new Set([GATEWAY, ...Object.keys(MIGRATION_DEBT)]);

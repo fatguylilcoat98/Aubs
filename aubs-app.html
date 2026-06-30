@@ -368,6 +368,7 @@ body{background:var(--bgbase);color:var(--ink);font-family:var(--font-body);
 <script src="core/providers/registry.js"></script>
 <script src="core/providers/fake-providers.js"></script>
 <script src="core/providers/openai-adapter.js"></script>
+<script src="core/providers/endpoint.js"></script>
 <script src="core/providers/index.js"></script>
 <script src="core/memory/types.js"></script>
 <script src="core/memory/store.js"></script>
@@ -1175,6 +1176,23 @@ function resolve(tier){
   return AVAILABLE.find(id=>/q4f32/i.test(id)&&/instruct|chat/i.test(id))||AVAILABLE[0];
 }
 let engine=null, chosenModel=null, currentTier='fast';
+// ── MODEL ENDPOINT (pluggable engine) ───────────────────────────────────────────────────────
+// Point AUBS at an OpenAI-compatible model server you run yourself — a model DOWNLOADED ON YOUR
+// PHONE (Ollama/llama.cpp/LM Studio at localhost) now, or your AUBS server later. The architecture
+// is unchanged; only the engine differs. ?engine=<baseURL> [&engineModel=<id>]. A localhost engine
+// is on-device (nothing leaves the phone); a remote one is network egress (surfaced honestly).
+let endpointActive=false, endpointBase="", endpointModel="", endpointKind="";
+function endpointWanted(){ const e=urlParam('engine'); return e ? (/^https?:\/\//.test(e) ? e : ("http://"+e)) : ""; }
+// Unified model completion: the endpoint when active, else the WebLLM engine. Both return {text,finish}.
+async function modelComplete(messages, opts){
+  opts=opts||{};
+  if(endpointActive && window.AUBS_ENDPOINT){
+    const r=await window.AUBS_ENDPOINT.chat(endpointBase, endpointModel, messages, { temperature:(opts.temperature!=null?opts.temperature:0.7), max_tokens:(opts.max_tokens!=null?opts.max_tokens:256) });
+    return { text:(r&&r.text)||"", finish:(r&&r.finish)||"stop" };
+  }
+  const res=await engine.chat.completions.create({ messages:messages, stream:false, temperature:(opts.temperature!=null?opts.temperature:0.7), max_tokens:(opts.max_tokens!=null?opts.max_tokens:256) });
+  return { text:res&&res.choices&&res.choices[0]&&res.choices[0].message&&res.choices[0].message.content||"", finish:res&&res.choices&&res.choices[0]&&res.choices[0].finish_reason||"stop" };
+}
 function hasWebGPU(){ return typeof navigator!=="undefined" && !!navigator.gpu; }
 if(!hasWebGPU()){
   const w=document.getElementById('gpuWarn'); w.classList.add('show');
@@ -1182,6 +1200,29 @@ if(!hasWebGPU()){
   document.getElementById('btnFast').disabled=true; document.getElementById('btnSmart').disabled=true;
 }
 window.startDownload=async function(tier){
+  // MODEL ENDPOINT path: if ?engine=<url> is set, connect to that model server instead of loading
+  // a WebGPU model. This is how AUBS uses a model you downloaded on your phone (or your server).
+  const epWanted=endpointWanted();
+  if(epWanted && window.AUBS_ENDPOINT){
+    show('loading');
+    document.getElementById('dlTitle').textContent="Connecting to your model…";
+    setPct(10, "Reaching "+epWanted+" …");
+    try{
+      const models=await window.AUBS_ENDPOINT.listModels(epWanted);
+      if(!models.length) throw new Error("connected, but the server reported no models");
+      endpointBase=epWanted; endpointModel=urlParam('engineModel')||models[0]; endpointKind=window.AUBS_ENDPOINT.classify(epWanted);
+      endpointActive=true; chosenModel=endpointModel; currentTier=tier;
+      console.log("[AUBS] endpoint connected:", endpointBase, "model:", endpointModel, "("+endpointKind+")", "available:", models);
+      setPct(100,"Connected"); enterChat(tier); return;
+    }catch(err){
+      document.getElementById('dlTitle').textContent="Couldn't reach that model server";
+      // Honest diagnosis: the usual blocker is the browser's localhost/CORS/Private-Network rules.
+      document.getElementById('dlSub').textContent=String(err&&err.message?err.message:err)+
+        " — the server must allow this site's origin (CORS) and accept local-network requests. "+
+        "Add ?engine=0 (or remove it) to use the built-in on-device model instead.";
+      setPct(0,"Failed"); console.error("[AUBS] endpoint connect failed:", err); return;
+    }
+  }
   if(!hasWebGPU()) return;
   show('loading');
   document.getElementById('dlTitle').textContent=tier==='fast'?'Downloading Fast…':'Downloading Smart…';
@@ -1201,7 +1242,7 @@ window.startDownload=async function(tier){
   }
 };
 function setPct(p,text){ document.getElementById('barFill').style.width=p+"%"; document.getElementById('pctText').textContent=text||(p+"%"); }
-function enterChat(tier){ currentTier=tier; document.getElementById('chatModel').textContent=displayAssistantName()+(tier==='fast'?' · Fast':' · Smart'); document.getElementById('greetWho').textContent=displayAssistantName().toUpperCase(); show('chat'); renderHistory(); setTimeout(()=>document.getElementById('box').focus(),300); }
+function enterChat(tier){ currentTier=tier; const label=endpointActive?(' · '+(endpointKind==='on-device'?'Local model':'Server model')):(tier==='fast'?' · Fast':' · Smart'); document.getElementById('chatModel').textContent=displayAssistantName()+label; document.getElementById('greetWho').textContent=displayAssistantName().toUpperCase(); show('chat'); renderHistory(); setTimeout(()=>document.getElementById('box').focus(),300); }
 function show(id){ document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active')); document.getElementById(id).classList.add('active'); }
 window.grow=(t)=>{ t.style.height='auto'; t.style.height=Math.min(t.scrollHeight,120)+'px'; };
 window.keys=(e)=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); window.send(); } };
@@ -1211,6 +1252,7 @@ window.keys=(e)=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); window.
    confirm the new device is actually alive with a 1-token warmup before handing it back.
    Re-inits from the CACHED model (no re-download). Returns true on success. */
 async function recoverEngine(){
+  if(endpointActive) return false;   // endpoint mode has no WebGPU engine to recover
   try{ if(engine && engine.unload) await engine.unload(); }catch(e){}
   engine=null;
   for(let attempt=1; attempt<=3; attempt++){
@@ -1366,9 +1408,9 @@ window.send=async function(){
           full="";
           // NON-streaming: one decode = one GPU readback (streaming's per-token buffer
           // mapping faulted on this Adreno GPU). The dots cover the wait.
-          const res=await engine.chat.completions.create({ messages:sent, stream:false, temperature:0.7, max_tokens:256 });
-          full = res?.choices?.[0]?.message?.content || "";
-          finish = res?.choices?.[0]?.finish_reason || finish;
+          const mc=await modelComplete(sent, { temperature:0.7, max_tokens:256 });   // endpoint or WebLLM
+          full = mc.text || "";
+          finish = mc.finish || finish;
           if(full){ bubble.textContent=full; thread.scrollTop=thread.scrollHeight; }
           fatalErr=null; break;                       // generation completed
         }catch(genErr){
@@ -1425,9 +1467,9 @@ async function runModelTurnThroughKernel(text, sent, bubble, aiWrap, t0, routerO
     const MAX_ATTEMPTS=2;
     for(let attempt=1; attempt<=MAX_ATTEMPTS; attempt++){
       try{
-        const res=await engine.chat.completions.create({ messages:sent, stream:false, temperature:0.7, max_tokens:256 });
-        full=res?.choices?.[0]?.message?.content||"";
-        finish=res?.choices?.[0]?.finish_reason||finish;
+        const mc=await modelComplete(sent, { temperature:0.7, max_tokens:256 });   // endpoint or WebLLM
+        full=mc.text||"";
+        finish=mc.finish||finish;
         fatalErr=null; break;
       }catch(genErr){
         fatalErr=genErr;
@@ -1488,9 +1530,9 @@ async function runModelTurnThroughConstitution(text, sent, bubble, aiWrap, t0, r
     const MAX_ATTEMPTS=2;
     for(let attempt=1; attempt<=MAX_ATTEMPTS; attempt++){
       try{
-        const res=await engine.chat.completions.create({ messages:sent, stream:false, temperature:0.7, max_tokens:256 });
-        full=res?.choices?.[0]?.message?.content||"";
-        finish=res?.choices?.[0]?.finish_reason||finish;
+        const mc=await modelComplete(sent, { temperature:0.7, max_tokens:256 });   // endpoint or WebLLM
+        full=mc.text||"";
+        finish=mc.finish||finish;
         fatalErr=null; break;
       }catch(genErr){
         fatalErr=genErr;

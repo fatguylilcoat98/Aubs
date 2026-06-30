@@ -377,6 +377,17 @@ Every layer moved into the runtime makes AUBS:
 
 The product is the runtime. The model is a rented voice.
 
+### Pluggable model engines (local & remote)
+The model is not just a swappable *weight set* — it's a swappable *engine*. `core/providers/endpoint.js`
+lets the runtime talk to any OpenAI-compatible model server: the **built-in WebLLM** (in-browser, capped
+by the Adreno WebGPU binding limit), a model **you downloaded and run on your phone** (Ollama /
+llama.cpp-server / LM Studio at `localhost` — on-device, nothing leaves the phone), or **your AUBS
+server** later (network egress, surfaced honestly). `?engine=<baseURL>` connects; `classify(base)`
+distinguishes on-device (localhost) from network so the Glass Box stays truthful; the governed runtime
+(facts, services, Trust OS, persona) is identical regardless of which engine answers. The one in-browser
+caveat is reachability: a PWA calling `localhost` must clear the browser's CORS + Private-Network-Access
+checks — verified per device, not assumed. Tests: `run-endpoint`.
+
 ---
 
 ## 10. Build order (grounded)
