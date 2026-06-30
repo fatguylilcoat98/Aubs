@@ -446,6 +446,10 @@ body{background:var(--bgbase);color:var(--ink);font-family:var(--font-body);
 <script type="module">
 import * as webllm from "https://esm.run/@mlc-ai/web-llm@0.2.84";
 const SPINE = (typeof window!=="undefined" && window.AUBS_SPINE) ? window.AUBS_SPINE : null;
+// ONE-URL DEFAULT: the full runtime stack (spine · facts · trust · identity · persona · know) is ON
+// by default now that every layer is tested + CI-gated — so the bare app URL is all you need, no
+// query soup. Rollback switches kept: ?safe=1 turns the whole stack off; ?<flag>=0 turns one off.
+const AUBS_SAFE = (function(){ try{ return new URLSearchParams(location.search).get('safe')==='1'; }catch(_){ return false; } })();
 // Dogfood control flags (Article 6), enabled per-session via URL or localStorage — never
 // a product UI, never on by default. ?trace=1 → full per-turn trace; ?svg=1 → the CANDIDATE
 // spine-verified grounding (Article 3a amendment, not law). Both default OFF.
@@ -469,9 +473,9 @@ if(SPINE && SPINE.FLAGS){
     // route in the constitutional path. Default OFF; enable per-session with ?identity=1. Flag-off
     // = byte-identical (the model answers identity exactly as today). The OS default declares NO
     // app identity (fallback = AUBS); an app may be selected for testing with ?app=splendor|lylo.
-    if(qp.get('identity')==='1'||localStorage.getItem('aubs_identity')==='1') SPINE.FLAGS.FLAG_IDENTITY_V2=true;
-    if(qp.get('identity')==='0'){ SPINE.FLAGS.FLAG_IDENTITY_V2=false; try{ localStorage.removeItem('aubs_identity'); }catch(_){} }
-    if(qp.get('identity')==='1'){ try{ localStorage.setItem('aubs_identity','1'); }catch(_){} }
+    // Default ON (one-URL). ?identity=0 or ?safe=1 turns it off.
+    SPINE.FLAGS.FLAG_IDENTITY_V2 = !(AUBS_SAFE || qp.get('identity')==='0');
+    if(qp.get('identity')==='0'){ try{ localStorage.removeItem('aubs_identity'); }catch(_){} }
   }catch(e){}
 }
 
@@ -500,12 +504,10 @@ function kernelChatOn(){ return !!(FLAG_KERNEL_CHAT && typeof window!=="undefine
    is a STRICT superset of the M4 kernel path. With the flag OFF, none of it executes and AUBS
    behaves exactly as today. Enable per-session: ?spine=1 (or aubs_spine=1). The working
    offline loop is never replaced — the local provider calls into it. Supersedes ?kernel=1. */
-let FLAG_CONSTITUTION_CHAT=false;
+let FLAG_CONSTITUTION_CHAT=true;   // one-URL default ON; ?spine=0 or ?safe=1 turns it off
 try{
   const qp=new URLSearchParams(location.search);
-  if(qp.get('spine')==='1'||localStorage.getItem('aubs_spine')==='1') FLAG_CONSTITUTION_CHAT=true;
-  if(qp.get('spine')==='0'){ FLAG_CONSTITUTION_CHAT=false; try{ localStorage.removeItem('aubs_spine'); }catch(_){} }
-  if(qp.get('spine')==='1'){ try{ localStorage.setItem('aubs_spine','1'); }catch(_){} }
+  if(AUBS_SAFE || qp.get('spine')==='0'){ FLAG_CONSTITUTION_CHAT=false; try{ localStorage.removeItem('aubs_spine'); }catch(_){} }
 }catch(e){}
 function constitutionChatOn(){ return !!(FLAG_CONSTITUTION_CHAT && typeof window!=="undefined" && window.AUBS_CONSTITUTION_CHAT && window.AUBS_CONSTITUTION_CHAT.runConstitutionalChat); }
 /* Slice 0 — which application's identity is declared this session. Default NONE (the OS does
@@ -540,12 +542,10 @@ function displayAssistantName(){ const r=resolvedIdentity(); return (r&&r.assist
    the registry, so it can never be the first handler nor over-capture creator/capability
    questions. OFF → none of it runs; the turn flows to the router/model exactly as today
    (byte-identical). Enable per-session: ?facts=1 (or aubs_facts=1). */
-let FLAG_GOVERNED_FACTS=false;
+let FLAG_GOVERNED_FACTS=true;   // one-URL default ON; ?facts=0 or ?safe=1 turns it off
 try{
   const qp=new URLSearchParams(location.search);
-  if(qp.get('facts')==='1'||localStorage.getItem('aubs_facts')==='1') FLAG_GOVERNED_FACTS=true;
-  if(qp.get('facts')==='0'){ FLAG_GOVERNED_FACTS=false; try{ localStorage.removeItem('aubs_facts'); }catch(_){} }
-  if(qp.get('facts')==='1'){ try{ localStorage.setItem('aubs_facts','1'); }catch(_){} }
+  if(AUBS_SAFE || qp.get('facts')==='0'){ FLAG_GOVERNED_FACTS=false; try{ localStorage.removeItem('aubs_facts'); }catch(_){} }
   if(typeof SPINE!=="undefined"&&SPINE&&SPINE.FLAGS) SPINE.FLAGS.FLAG_GOVERNED_FACTS=FLAG_GOVERNED_FACTS;
 }catch(e){}
 function governedFactsOn(){ return !!(FLAG_GOVERNED_FACTS && typeof window!=="undefined" && window.AUBS_FACT_GATE && window.AUBS_FACT_GATE.governedFactGate); }
@@ -559,12 +559,10 @@ function governedFactResolved(){
    When ON (and on the constitutional path), every model turn emits a validated Trust Record
    (six proofs) and a Glass Box line under the answer. OFF → no record, byte-identical.
    Enable per-session: ?trust=1 (best with ?spine=1, the constitutional path). */
-let FLAG_TRUST_OS=false;
+let FLAG_TRUST_OS=true;   // one-URL default ON; ?trust=0 or ?safe=1 turns it off
 try{
   const qp=new URLSearchParams(location.search);
-  if(qp.get('trust')==='1'||localStorage.getItem('aubs_trust')==='1') FLAG_TRUST_OS=true;
-  if(qp.get('trust')==='0'){ FLAG_TRUST_OS=false; try{ localStorage.removeItem('aubs_trust'); }catch(_){} }
-  if(qp.get('trust')==='1'){ try{ localStorage.setItem('aubs_trust','1'); }catch(_){} }
+  if(AUBS_SAFE || qp.get('trust')==='0'){ FLAG_TRUST_OS=false; try{ localStorage.removeItem('aubs_trust'); }catch(_){} }
   if(typeof SPINE!=="undefined"&&SPINE&&SPINE.FLAGS) SPINE.FLAGS.FLAG_TRUST_OS=FLAG_TRUST_OS;
 }catch(e){}
 function trustOsOn(){ return !!(FLAG_TRUST_OS && typeof window!=="undefined" && window.AUBS_TRUST); }
@@ -592,14 +590,14 @@ function aubsRuntimeMetaFull(){
    the prompt is byte-identical to today. Enable per-session: ?persona=1 (default persona),
    ?persona=coach / ?persona=friend (pick a built-in), or ?persona=<free text> (a style note).
    ?persona=0 disables. */
-let FLAG_PERSONA=false, PERSONA_SEL=null;   // PERSONA_SEL: null → default 'aubs'; else id or free-text
+let FLAG_PERSONA=true, PERSONA_SEL=null;   // one-URL default ON; ?persona=0 or ?safe=1 turns it off
 try{
   const qp=new URLSearchParams(location.search);
   const pv=qp.get('persona');
   const stored=localStorage.getItem('aubs_persona');
-  if(pv==='0'){ FLAG_PERSONA=false; try{ localStorage.removeItem('aubs_persona'); }catch(_){} }
-  else if(pv!==null && pv!==''){ FLAG_PERSONA=true; PERSONA_SEL=(pv==='1')?null:pv; try{ localStorage.setItem('aubs_persona', PERSONA_SEL||'1'); }catch(_){} }
-  else if(stored){ FLAG_PERSONA=true; PERSONA_SEL=(stored==='1')?null:stored; }
+  if(AUBS_SAFE || pv==='0'){ FLAG_PERSONA=false; try{ localStorage.removeItem('aubs_persona'); }catch(_){} }
+  else if(pv!==null && pv!==''){ PERSONA_SEL=(pv==='1')?null:pv; try{ localStorage.setItem('aubs_persona', PERSONA_SEL||'1'); }catch(_){} }
+  else if(stored){ PERSONA_SEL=(stored==='1')?null:stored; }
 }catch(e){}
 function personaOn(){ return !!(FLAG_PERSONA && typeof window!=="undefined" && window.AUBS_PERSONA && window.AUBS_PERSONA.compilePersona); }
 // Resolve the active persona deterministically: an explicit selection (built-in id or free text),
@@ -658,12 +656,10 @@ function personaGuardOut(text){
    The 3.9MB word list is NOT precached — it is lazy-loaded from the AUBS origin on first use
    (an app asset, not third-party egress) and service-worker-cached → offline after first use.
    OFF → nothing runs; the turn flows to the model as before. Enable: ?know=1 (or aubs_know=1). */
-let FLAG_KNOWLEDGE=false;
+let FLAG_KNOWLEDGE=true;   // one-URL default ON; ?know=0 or ?safe=1 turns it off
 try{
   const qp=new URLSearchParams(location.search);
-  if(qp.get('know')==='1'||localStorage.getItem('aubs_know')==='1') FLAG_KNOWLEDGE=true;
-  if(qp.get('know')==='0'){ FLAG_KNOWLEDGE=false; try{ localStorage.removeItem('aubs_know'); }catch(_){} }
-  if(qp.get('know')==='1'){ try{ localStorage.setItem('aubs_know','1'); }catch(_){} }
+  if(AUBS_SAFE || qp.get('know')==='0'){ FLAG_KNOWLEDGE=false; try{ localStorage.removeItem('aubs_know'); }catch(_){} }
 }catch(e){}
 let __lexiconPack=null, __lexiconLoading=null, __defPack=null, __defLoading=null, __convPack=null, __timePack=null, lastKnowledgeWord=null;
 function knowledgeOn(){ return !!(FLAG_KNOWLEDGE && typeof window!=="undefined" && window.AUBS_KNOWLEDGE && window.AUBS_LEXICON && window.AUBS_DEFINITIONS && window.AUBS_CONVERSIONS && window.AUBS_TIME); }
