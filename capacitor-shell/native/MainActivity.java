@@ -39,6 +39,9 @@ public class MainActivity extends BridgeActivity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);   // keep Capacitor's own bridge wiring intact
+                // Injects window.AUBSNative on EVERY page — including the LIVE Pages page loaded
+                // for auto-update (allowed by capacitor.config allowNavigation). So the native GGUF
+                // bridge works whether the app runs the bundled copy or the remote live code.
                 view.evaluateJavascript(FACADE_JS, null);
             }
         });
