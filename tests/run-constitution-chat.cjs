@@ -88,6 +88,34 @@ const IDS = { intent_id: "i", plan_id: "p", created_at: "2026-06-29T00:00:00Z" }
     ok("memory-first: empty memory → honest 'I don't know anything about you yet', model 0×", mg2.calls() === 0 && /don't know anything about you yet/i.test(ms2.ui.text));
   }
 
+  // ── UNKNOWN-ENTITY question (live device finding): never a generic error ───────────
+  // "help me fix my AI OS its called AUBS..." must fall through the governed-fact gate and
+  // the router to normal conversational inference; and when the model then returns an EMPTY
+  // completion (a content-quality failure, common on small models), the user gets an HONEST
+  // FALLBACK delivered as a normal reply (ui.honest_fallback) — the generic error is
+  // reserved for true technical failures (engine throw).
+  {
+    const UNKNOWN = "help me fix my AI OS its called AUBS maybe you heard of it before";
+    const GATE = require("../core/facts/gate.js");
+    const SPINE2 = require("../spine/spine.js");
+    const g = GATE.governedFactGate(UNKNOWN, { resolved: null, runtime: {}, entries: [], enabled: true });
+    ok("unknown-entity question: governed-fact gate falls through (handled:false), no fail-closed", g && g.handled === false);
+    const routed = SPINE2.routeQuery ? SPINE2.routeQuery(UNKNOWN, { entries: [], persona: "", instructions: "" }) : { handled: false };
+    ok("unknown-entity question: router falls through to the model (handled:false)", routed.handled === false);
+    let ugen = okGen("Happy to help debug AUBS — tell me what it's doing.");
+    let us = await CHAT.runConstitutionalChat({ text: UNKNOWN, generate: ugen, ledgerStore: L.createMemoryStore(), signingKey: key.privateKey, intent_id: "iu1", plan_id: "pu1", created_at: IDS.created_at });
+    ok("unknown-entity question reaches the model and answers normally", ugen.calls() === 1 && us.ui.ok === true);
+    let egen2 = emptyGen();
+    us = await CHAT.runConstitutionalChat({ text: UNKNOWN, generate: egen2, ledgerStore: L.createMemoryStore(), signingKey: key.privateKey, intent_id: "iu2", plan_id: "pu2", created_at: IDS.created_at });
+    ok("empty completion on unknown-entity → honest fallback (ui.honest_fallback), not the generic error",
+      us.ui.ok === false && us.ui.honest_fallback === true && /don't have verified information about that, so I won't guess/.test(us.ui.text) && !/Something went wrong/.test(us.ui.text));
+    ok("honest fallback: record honestly stays status:error (no invented model text)", us.status === "error" && us.output_text === "");
+    let tgen2 = throwGen();
+    us = await CHAT.runConstitutionalChat({ text: UNKNOWN, generate: tgen2, ledgerStore: L.createMemoryStore(), signingKey: key.privateKey, intent_id: "iu3", plan_id: "pu3", created_at: IDS.created_at });
+    ok("engine throw on the same question keeps the generic error (true technical failure)",
+      us.ui.ok === false && us.ui.honest_fallback !== true && /Something went wrong/.test(us.ui.text));
+  }
+
   // ── flag OFF (by construction): the module runs ONLY when called ───────────────────
   ok("flag-OFF safety: chat path is inert until runConstitutionalChat is called (pure module)", typeof CHAT.runConstitutionalChat === "function" && typeof CHAT.buildChatEnv === "function");
 

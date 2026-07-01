@@ -1064,7 +1064,7 @@
 
       <div class="menu-section">
         <div class="section-label">Personality</div>
-        <div class="menu-item" onclick="">Name · AUBS</div>
+        <div class="menu-item" id="aiNameItem" onclick="editAssistantName()">Name · AUBS</div>
         <div class="menu-item" onclick="">Tone · Professional</div>
       </div>
 
@@ -1324,11 +1324,31 @@
       const greetWho = document.querySelector('#greetWho');
       if (greetWho) greetWho.textContent = AppState.aiName.toUpperCase();
 
+      // Settings > Personality name item — reads the SAME AppState.aiName the header and
+      // system prompt read, so the three can never disagree (single source of truth).
+      const aiNameItem = document.getElementById('aiNameItem');
+      if (aiNameItem) aiNameItem.textContent = `Name · ${AppState.aiName}`;
+
       // Chat header AI name
       const headerIcons = document.querySelectorAll('.chat-header .icon-btn');
       if (headerIcons.length > 0) {
         // Already shown in chat-title
       }
+    }
+
+    /**
+     * Edit the assistant name from Settings > Personality. Saving goes through
+     * updateNames() → updateState() (persisted) + applyStateToUI() (header + settings item),
+     * and buildSystemPrompt() reads AppState.aiName at build time — so the header, the
+     * settings field, the system prompt, and persisted state always change together.
+     */
+    function editAssistantName() {
+      const current = AppState.aiName || 'AUBS';
+      const entered = window.prompt('Assistant name', current);
+      if (entered === null) return;                    // cancelled
+      const name = entered.trim();
+      if (!name || name === current) return;           // unchanged / empty keeps current
+      updateNames(name, AppState.userName);
     }
 
     // ─── UI WIRE-UP: Persist on Changes ───
@@ -1790,11 +1810,19 @@
           // STAGE 4: Validate output
           const validationResult2 = await this._stageValidateOutput(inferenceResult.message);
           if (!validationResult2.valid) {
-            result.success = false;
-            result.message = 'Response validation failed: ' + validationResult2.warnings.join('; ');
+            // GRACEFUL DEGRADATION: a validator rejection is a CONTENT-QUALITY outcome, not a
+            // technical failure — the user gets an honest fallback delivered as a normal
+            // assistant message, never an error state. The raw rejected reply (already
+            // persisted by ModelAdapter before validation) is replaced in saved state so
+            // state matches what the user sees. The rejection reason + confidence were
+            // already logged by OutputValidator._logOutcome.
+            const fallback = "I don't have verified information about that, so I won't guess.";
+            this._replaceLastAssistantMessage(fallback);
+            result.success = true;
+            result.message = fallback;
             result.warnings = validationResult2.warnings;
             result.confidence = validationResult2.confidence;
-            result.stageLogs.push({ stage: 'validateOutput', status: 'failed', warnings: validationResult2.warnings });
+            result.stageLogs.push({ stage: 'validateOutput', status: 'failed', warnings: validationResult2.warnings, degraded: 'honest_fallback' });
             return result;
           }
           result.stageLogs.push({ stage: 'validateOutput', status: 'passed', confidence: validationResult2.confidence });
@@ -1830,6 +1858,21 @@
           this.isExecuting = false;
           this.currentExecutionId = null;
         }
+      },
+
+      /**
+       * Replace the last saved assistant message. ModelAdapter persists the raw reply
+       * BEFORE validation runs, so when the validator rejects it the honest fallback
+       * must replace it — saved state always matches what the user was shown.
+       */
+      _replaceLastAssistantMessage(text) {
+        try {
+          const hist = AppState.chatHistory;
+          if (hist && hist.length && hist[hist.length - 1].role === 'assistant') {
+            hist[hist.length - 1].content = text;
+            saveState();
+          }
+        } catch (_) { /* best-effort state patch; the fallback still displays */ }
       },
 
       /**
@@ -2617,11 +2660,14 @@ Keep your replies concise and to the point.`,
         let prompt = this.selectIdentityCore() + "\n\n";
 
         // PERSONALITY LAYER
+        // NAME OWNERSHIP: small models blur who each name belongs to (device finding: the
+        // assistant addressed the USER by the ASSISTANT's own name) — make it unmistakable.
         const personalitySection = [];
-        personalitySection.push(`You are ${state.aiName}, a private on-device AI assistant that runs entirely on the user's device. Nothing they say leaves it.`);
-        
+        personalitySection.push(`You are ${state.aiName}. That is YOUR name. You are a private on-device AI assistant that runs entirely on the user's device. Nothing they say leaves it.`);
+
         if (state.userName && state.userName.trim()) {
-          personalitySection.push(`The user's name is ${state.userName.trim()}.`);
+          const userName = state.userName.trim();
+          personalitySection.push(`You are talking to ${userName}. Address them as ${userName}. Never address the person by your own name.`);
         }
         
         if (state.customize && state.customize.tones && state.customize.tones.length) {

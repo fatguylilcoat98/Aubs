@@ -91,9 +91,11 @@ const isCare = (s) => /988/.test(s);
   t("CRASH(empty output) on crisis → care shown, generic crash NOT shown", isCare(empties.shown) && empties.crash === false);
   const throws = await failurePath(crisisText, throwGen());
   t("CRASH(engine throw) on crisis → care shown, generic crash NOT shown", isCare(throws.shown) && throws.crash === false);
-  // sanity: the pipeline really DID fail here (so the backstop was the thing that saved it)
+  // sanity: the pipeline really DID fail here (so the backstop was the thing that saved it).
+  // An empty completion is a CONTENT-QUALITY failure: the record stays status:error but the
+  // UI surface is now an honest fallback (ui.honest_fallback), never the generic crash text.
   const provedFail = await CHAT.runConstitutionalChat({ text: crisisText, generate: emptyGen(), model_id: "m", ledgerStore: L.createMemoryStore(), signingKey: key.privateKey, intent_id: "i", plan_id: "p", created_at: "2026-06-29T00:00:00Z" });
-  t("pipeline genuinely fails on empty output (status error, generic crash text)", provedFail.ui.ok === false && provedFail.ui.text === GENERIC_CRASH);
+  t("pipeline genuinely fails on empty output (status error, honest fallback — not the generic crash)", provedFail.ui.ok === false && provedFail.status === "error" && provedFail.ui.honest_fallback === true && provedFail.ui.text !== GENERIC_CRASH);
 
   // ── 3) False-positive guard: these must NOT trigger the care response or block ────────
   const benign = ["let's end it here", "end the meeting", "I want to end this subscription"];

@@ -150,12 +150,19 @@
 
   // Map recorded pipeline state → exactly what the chat UI needs. NEVER invents text:
   // success shows the model's output verbatim; blocked/failed show an honest, fixed message.
+  // A CONTENT-QUALITY failure (the model ran but produced no usable text — common on small
+  // models) is NOT a technical failure: the UI gets an honest fallback marked
+  // ui.honest_fallback so the app can deliver it as a normal assistant reply, while the
+  // DecisionRecord honestly stays "error". The generic "Something went wrong" line remains
+  // ONLY for true technical failures (engine crash / provider drift).
   function uiView(state) {
     var blocked = state.status === "blocked";
     var ok = state.status === "ok";
+    var emptyCompletion = !ok && !blocked && /returned no text/i.test(String(state.failure_msg || ""));
     var text;
     if (ok) text = state.output_text || "";
     else if (blocked) text = blockedMessage(state);
+    else if (emptyCompletion) text = "I don't have verified information about that, so I won't guess.";
     else text = "Something went wrong before I could answer. Nothing left this device.";
     var ui = {
       ok: ok, blocked: blocked, text: text,
@@ -171,6 +178,8 @@
       // who owned it, where it came from, whether the model was consulted, and why.
       provenance: state.provenance || null
     };
+    // Added ONLY on a content-quality failure — the ui shape is unchanged on every other path.
+    if (emptyCompletion) ui.honest_fallback = true;
     // Trust OS fields are added ONLY when a Trust Record exists — so with FLAG_TRUST_OS off the
     // ui shape is byte-identical to pre-Trust-OS (no trust_* keys appear at all).
     if (state.trust_record) {
