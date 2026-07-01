@@ -1,0 +1,20 @@
+{
+  "name": "aubs-android-shell",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AUBS Android (Capacitor) shell — Phase 1: native bridge stub exposing window.AUBSNative. Wraps the existing AUBS PWA; adds no cloud, no model bundle, no secrets.",
+  "license": "UNLICENSED",
+  "scripts": {
+    "copy-web": "bash ./copy-web.sh",
+    "add-android": "cap add android",
+    "sync": "npm run copy-web && cap sync android",
+    "open-android": "cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.1.0",
+    "@capacitor/core": "^6.1.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.1.0"
+  }
+}

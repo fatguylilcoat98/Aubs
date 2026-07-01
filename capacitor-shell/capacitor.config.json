@@ -1,0 +1,11 @@
+{
+  "appId": "com.thegoodneighborguard.aubs",
+  "appName": "AUBS",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}

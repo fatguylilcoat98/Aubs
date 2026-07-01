@@ -1,0 +1,9 @@
+# Capacitor / Node — generated locally by Chris, NOT committed (Phase 1 keeps the repo lean).
+node_modules/
+# The generated native Android Gradle project (created by `npx cap add android`).
+android/
+# The PWA copied in by copy-web.sh (source of truth stays at the repo root).
+www/*
+# ...but keep the two shell-only files that ARE the scaffold:
+!www/index.html
+!www/aubs-native-facade.js

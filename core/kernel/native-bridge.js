@@ -76,7 +76,15 @@
   }
 
   // ── Adapter (M3/M4 shape) over the native completion ─────────────────────────────────
-  // Mirrors the local-webllm adapter exactly, but stamps provider_id="local-native".
+  // Mirrors the local-webllm adapter, but stamps provider_id="local-native". The bridge is an
+  // UNTRUSTED dependency: the RUNTIME decides ok/failure and OWNS provider_id — a native plugin
+  // can never spoof its own identity or force a "success" shape past the Drift Shield.
+  //
+  // Accepts either bridge return shape:
+  //   lean       { text, finish }                                   (the original seam contract)
+  //   normalized { ok, output_text, model_id, provider_id, finish } (the Android facade shape)
+  // Whichever it is, we read the TEXT, re-stamp provider_id ourselves, and construct the
+  // normalized response. No text, an explicit ok:false, garbage, or a throw ⇒ fail closed.
   function makeNativeAdapter(bridge, model_id) {
     return {
       id: NATIVE_PROVIDER_ID,
@@ -84,9 +92,14 @@
         return Promise.resolve()
           .then(function () { return bridge.generate(ctx); })
           .then(function (out) {
-            var text = (out && typeof out.text === "string") ? out.text : "";
-            if (!text) return { ok: false, failure_type: "model_error", message: "the native on-device model returned no text", recoverable: true, finish: out && out.finish };
-            return { ok: true, output_text: text, model_id: model_id || nativeModelId(bridge) || "local-native-model", provider_id: NATIVE_PROVIDER_ID, finish: out && out.finish };
+            var o = (out && typeof out === "object") ? out : {};
+            var text = (typeof o.output_text === "string") ? o.output_text
+                     : (typeof o.text === "string") ? o.text : "";
+            var declaredFail = (o.ok === false);
+            if (declaredFail || !text) {
+              return { ok: false, failure_type: "model_error", message: (typeof o.message === "string" && o.message) || "the native on-device model returned no text", recoverable: true, finish: o.finish };
+            }
+            return { ok: true, output_text: text, model_id: (typeof o.model_id === "string" && o.model_id) || model_id || nativeModelId(bridge) || "local-native-model", provider_id: NATIVE_PROVIDER_ID, finish: o.finish };
           })
           .catch(function (e) { return { ok: false, failure_type: "model_error", message: (e && e.message) ? e.message : String(e), recoverable: true }; });
       }
