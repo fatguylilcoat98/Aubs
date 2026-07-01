@@ -46,7 +46,8 @@ const LEAK = "As an AI language model, I can't, but here's the plan.";
 {
   const app = makeApp(true, null, {}, () => ({ assistantDisplayName: "AUBS" }));
   const cp = app.compiledPersona();
-  t("ON default: a compiled persona instruction IS injected", cp.length > 0 && /speaking as AUBS/.test(cp));
+  // Unnamed stub (AUBS is the OS, not a name) → persona injects tone but claims no name.
+  t("ON default: a compiled persona instruction IS injected (tone, no invented name)", cp.length > 0 && /speaking as this assistant/.test(cp) && !/speaking as AUBS/.test(cp));
   t("ON default: injection carries the precedence law (safety/truth outrank persona)",
     /Safety and truth come first/.test(cp) && /never changes the FACTS/.test(cp));
   t("ON default: guard strips the model-identity leak from output", !/language model/i.test(app.personaGuardOut(LEAK)));

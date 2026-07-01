@@ -23,11 +23,17 @@ t("resolve partial override merges onto a built-in", P.resolvePersona({ id: "fri
   t("compiled instruction sets the voice + boundaries", /Voice:/.test(a) && /Never cross/.test(a));
   t("compiled instruction forbids 'as an AI language model' / model identity", /as an AI language model/i.test(a) && /ChatGPT\/GPT\/Claude\/Gemini/.test(a));
   t("compiled instruction states safety/truth/facts OUTRANK persona", /Safety and truth come first/.test(a) && /never changes the FACTS/.test(a));
-  const named = P.compilePersona(P.resolvePersona("talk like Donald Trump"), { assistantDisplayName: "AUBS" });
-  t("compiled uses the resolved assistant name + ACTIVATES the requested subject",
-    /speaking as AUBS/.test(named) && /perform the voice and manner of: Donald Trump/.test(named));
+  // A persona is TONE only: it reads the assistant's NAME from the resolved field and ACTIVATES
+  // the requested subject as a voice. When named ("Ada"), it speaks as Ada; it never renames.
+  const named = P.compilePersona(P.resolvePersona("talk like Donald Trump"), { assistantName: "Ada", named: true, assistantDisplayName: "Ada" });
+  t("persona reads the assistant NAME from the field (Ada) + ACTIVATES the requested subject as VOICE",
+    /speaking as Ada/.test(named) && /perform the voice and manner of: Donald Trump/.test(named) && !/speaking as Donald Trump/.test(named));
   t("activation carries the honesty clause (perform style, never falsify identity)",
     /performance of STYLE, not a change of identity/.test(named) && /never claim to literally be Donald Trump/.test(named));
+  // UNNAMED: the persona still shapes tone but invents NO name (AUBS is the OS, not a name).
+  const unnamed = P.compilePersona(P.resolvePersona("talk like Donald Trump"), { assistantName: null, named: false, assistantDisplayName: "AUBS" });
+  t("persona on an UNNAMED assistant sets tone but no name (never 'speaking as AUBS')",
+    /you don't have a name yet/.test(unnamed) && !/speaking as AUBS/.test(unnamed) && /perform the voice and manner of: Donald Trump/.test(unnamed));
 }
 
 // ── PERSONA ACTIVATION ENGINE — anyone, anything (model = knowledge, runtime = activation) ─────

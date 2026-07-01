@@ -92,11 +92,12 @@ function run(textIn, gen, over) {
     const g = spyGen("I'm AUBS, your on-device assistant.");
     const s = await run("Who are you?", g, { appIdentity: SPLENDOR, identityV2: false, ledgerStore: L.createMemoryStore(), signingKey: key.privateKey });
     t("Flag-OFF: identity query goes to the MODEL (no deterministic route), no identity record", g.calls() === 1 && !s.identity && s.record.execution_type !== "identity");
-    // Unified Identity: with NO app identity + flag ON, the resolver falls back to AUBS and STILL
-    // answers deterministically (model never the source) — bare-OS answer, no redundant runtime clause.
+    // Unified Identity: with NO app identity + NO user name, the assistant is UNNAMED (AUBS is the
+    // OS, not a name) and STILL answers deterministically (model never the source) — the honest
+    // "no name yet, I run on AUBS" line.
     const g2 = spyGen();
     const s2 = await run("Who are you?", g2, { identityV2: true, ledgerStore: L.createMemoryStore(), signingKey: key.privateKey }); // no appIdentity
-    t("No app + flag ON: resolver falls back to AUBS, deterministic 'I'm AUBS.', model 0×", g2.calls() === 0 && s2.ui.text === "I'm AUBS." && s2.identity && s2.identity.assistant_name_source === "default");
+    t("No app + flag ON: unnamed, deterministic 'no name yet' answer, model 0×", g2.calls() === 0 && /^I don't have a name right now/.test(s2.ui.text) && s2.identity && s2.identity.assistant_name_source === "default");
   }
 
   // ── Execution Contract is distinct from the Provider Contract (schema sanity) ───────────

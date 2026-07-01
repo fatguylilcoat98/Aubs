@@ -834,7 +834,7 @@ async function refreshLedgerRow(){
   try{ const n=await window.aubsLedger.count(); const el=document.getElementById('ledgerCount'); if(el) el.textContent=n+" record"+(n===1?"":"s")+" · signed, hash-chained"; }catch(e){}
 }
 
-const DEFAULTS = { aiName:"AUBS", userName:"", tones:[], instructions:"", theme:"midnight", c1:"#4FD4FF", c2:"#9B4DFF", bg:"" };
+const DEFAULTS = { aiName:"", userName:"", tones:[], instructions:"", theme:"midnight", c1:"#4FD4FF", c2:"#9B4DFF", bg:"" };
 let S = load();
 function load(){ try{ const r=localStorage.getItem("aubs_settings"); if(r) return Object.assign({},DEFAULTS,JSON.parse(r)); }catch(e){} return Object.assign({},DEFAULTS); }
 function persist(){ try{ localStorage.setItem("aubs_settings", JSON.stringify(S)); }catch(e){ toast("Couldn't save — storage full. Try a smaller photo."); } }
@@ -896,7 +896,7 @@ function promptMode(text){
   return c==="identity" ? "identity" : "chat";
 }
 function buildSystemPrompt(mode){
-  const persona=(S.aiName||"AUBS").trim();
+  const persona=(S.aiName||"").trim();
   const hasPersona = persona && persona.toLowerCase()!=="aubs";
   const isIdentity = (mode==="identity");
   // Unified Identity (flag ON): render the prompt from the ONE resolved object — the model is
@@ -952,7 +952,7 @@ function contextMessages(){ return history.length>CTX_MSGS+1 ? [history[0], ...h
 function rebuildSystemPrompt(){ history[0]={ role:"system", content: buildSystemPrompt() }; }
 
 window.openDrawer=function(){
-  document.getElementById('pAiName').value = S.aiName==="AUBS"?"":S.aiName;
+  document.getElementById('pAiName').value = (S.aiName && S.aiName.toLowerCase()!=="aubs") ? S.aiName : "";
   document.getElementById('pUserName').value = S.userName||"";
   document.getElementById('pInstr').value = S.instructions||"";
   document.querySelectorAll('#toneChips .chip').forEach(c=>c.classList.toggle('on', S.tones.includes(c.dataset.tone)));
@@ -967,7 +967,7 @@ window.openDrawer=function(){
 window.closeDrawer=function(){ document.getElementById('drawer').classList.remove('show'); document.getElementById('drawerOverlay').classList.remove('show'); };
 document.querySelectorAll('#toneChips .chip').forEach(c=>c.addEventListener('click',()=>c.classList.toggle('on')));
 window.savePersona=function(){
-  S.aiName=document.getElementById('pAiName').value.trim()||"AUBS";
+  S.aiName=document.getElementById('pAiName').value.trim();   // empty = unnamed (AUBS is the OS, not a name)
   S.userName=document.getElementById('pUserName').value.trim();
   S.tones=[...document.querySelectorAll('#toneChips .chip.on')].map(c=>c.dataset.tone);
   S.instructions=document.getElementById('pInstr').value.trim();
