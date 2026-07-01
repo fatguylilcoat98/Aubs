@@ -950,8 +950,15 @@ function buildSystemPrompt(mode){
     : (isIdentity
         ? `You are AUBS, a private on-device AI. Your name is AUBS and never changes — if asked your name or what you are, answer AUBS, never the user's name.${hasPersona?` You're styled as "${persona}" — a style only; you are still AUBS.`:""}`
         : `You are AUBS, a friendly private on-device AI. Be honest, help with what's asked, and refuse harmful requests kindly.${hasPersona?` Speak in a "${persona}" style.`:""}`);
-  // user's name + memory only on non-identity turns (identity is about AUBS, not the user)
-  if(!isIdentity && S.userName&&S.userName.trim()) p+=` The user's name is ${S.userName.trim()}.`;
+  // NAME OWNERSHIP (device finding: small models addressed the USER by the ASSISTANT's own
+  // name) — make ownership unmistakable. User lines only on non-identity turns (identity is
+  // about the assistant, not the user) and only when a user name is actually set.
+  const _selfName = displayAssistantName();
+  p += ` You are ${_selfName}. That is YOUR name.`;
+  if(!isIdentity && S.userName&&S.userName.trim()){
+    const _userName=S.userName.trim();
+    p += ` You are talking to ${_userName}. Address them as ${_userName}. Never address the person by your own name.`;
+  }
   if(S.tones&&S.tones.length) p+=` Tone: ${S.tones.join(", ")}.`;
   const parts=[p];
   if(!isIdentity && memories.length){
@@ -1530,8 +1537,15 @@ window.send=async function(){
           ? ("The on-device engine couldn't recover. ["+gpuDiagStr()+"] Error: "+m)
           : ("Error: "+m+"  ["+gpuDiagStr()+"]");
       }else{
-        if(!crisisBackstop(text, bubble))
-        bubble.textContent="(No text came back. finish: "+(finish||"?")+" · model: "+(chosenModel||"?")+". Tap send again.)";
+        // CONTENT-QUALITY failure: the model ran fine but produced no usable text (common on
+        // small models). Deliver an honest fallback as a NORMAL assistant reply — never an
+        // error state. True technical failures keep the explicit error branch above.
+        if(!crisisBackstop(text, bubble)){
+          console.log('[AUBS] validator: empty model completion (finish: '+(finish||'?')+' · model: '+(chosenModel||'?')+') → honest fallback delivered as a normal reply');
+          full="I don't have verified information about that, so I won't guess.";
+          bubble.textContent=full;
+          history.push({role:"assistant",content:full}); saveHistory(history.slice(1));
+        }
       }
       }   /* end else (non-kernel model path) */
     }
@@ -1605,7 +1619,10 @@ async function runModelTurnThroughKernel(text, sent, bubble, aiWrap, t0, routerO
     // blocked (policy) or failed (engine) — show the honest message; do not fabricate an answer.
     if(!ui.blocked && crisisBackstop(text, bubble)) return;  // engine failure on a crisis turn → care, not crash
     bubble.textContent=ui.text;
-    if(ui.blocked){ history.push({role:"assistant",content:ui.text}); saveHistory(history.slice(1)); }
+    // CONTENT-QUALITY failure: the honest fallback is a normal assistant reply — persist it
+    // like one. True technical failures (no honest_fallback) stay an unpersisted error surface.
+    if(ui.blocked || ui.honest_fallback){ history.push({role:"assistant",content:ui.text}); saveHistory(history.slice(1)); }
+    if(ui.honest_fallback) console.log('[AUBS] validator: empty model completion → honest fallback delivered as a normal reply');
   }
   attachKernelWhy(aiWrap, res);
   if(typeof refreshLedgerRow==="function") refreshLedgerRow();
@@ -1702,6 +1719,17 @@ async function runModelTurnThroughConstitution(text, sent, bubble, aiWrap, t0, r
     // Engine failure (the founder's "Something went wrong…" path): re-examine for crisis BEFORE
     // showing the generic message — a crisis turn must never end on a crash (the Final Principle).
     if(!ui.blocked && crisisBackstop(text, bubble)) return;
+    // CONTENT-QUALITY failure (ui.honest_fallback): the model ran fine but produced no usable
+    // text. Deliver the honest fallback as a NORMAL assistant reply — never an error state.
+    // The DecisionRecord honestly stays "error"; only the user-facing surface degrades gracefully.
+    if(ui.honest_fallback){
+      console.log('[AUBS] validator: empty model completion → honest fallback delivered as a normal reply');
+      bubble.textContent=ui.text;
+      history.push({role:"assistant",content:ui.text}); saveHistory(history.slice(1));
+      attachKernelWhy(aiWrap, res);
+      if(typeof refreshLedgerRow==="function") refreshLedgerRow();
+      return;
+    }
     // WebGPU death path: if the on-device engine crashed and recovery left it null (Adreno GPU
     // buffer fault / "device is lost"), a page reload is the only in-browser cure — so say that
     // HONESTLY and give a one-tap Restart, instead of a vague message that repeats every turn.

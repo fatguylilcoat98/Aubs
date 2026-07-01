@@ -67,14 +67,19 @@
 
   // Derive exactly what the chat UI needs — text to show, whether it was blocked, and the
   // honest Level 1 explanation. NEVER invents text; pulls from recorded kernel state.
+  // A CONTENT-QUALITY failure (the model ran but returned no text) gets an honest fallback
+  // marked ui.honest_fallback — a normal assistant reply, not an error state. The generic
+  // "Something went wrong on-device" line remains ONLY for true technical failures.
   function uiView(res) {
     var blocked = res.governance && res.governance.decision !== "allow";
     var ok = !!(res.result && res.result.status === "ok");
+    var emptyCompletion = !ok && !blocked && /returned no text/i.test(String((res.failure && res.failure.message) || ""));
     var text;
     if (ok) text = res.result.output_text || "";
     else if (blocked) text = blockedMessage(res.governance);
+    else if (emptyCompletion) text = "I don't have verified information about that, so I won't guess.";
     else text = errorMessage(res.failure);
-    return {
+    var ui = {
       text: text,
       blocked: blocked,
       ok: ok,
@@ -84,6 +89,9 @@
       record_seq: res.record ? res.record.seq : null,
       record_id: res.record ? res.record.id : null
     };
+    // Added ONLY on a content-quality failure — the ui shape is unchanged on every other path.
+    if (emptyCompletion) ui.honest_fallback = true;
+    return ui;
   }
 
   function blockedMessage(g) {
