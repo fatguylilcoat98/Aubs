@@ -1,0 +1,28 @@
+<!doctype html>
+<!--
+  AUBS Android shell — entry (Phase 1)
+  The Good Neighbor Guard · Christopher Hughes · Sacramento, CA
+  AI collaborators: Claude · GPT · Gemini · Groq · Truth · Safety · We Got Your Back
+
+  This index.html exists ONLY inside the Capacitor Android shell's webDir. It is never
+  served by GitHub Pages. `copy-web.sh` copies the PWA next to it. We load the native
+  facade first (installs window.AUBSNative when the AubsNative plugin is present), then
+  hand off to the real app at aubs-app.html with the constitutional path on (?spine=1),
+  so a native turn runs the full pipeline. The native MainActivity ALSO re-injects the
+  facade on every page load, so window.AUBSNative survives the navigation to aubs-app.html.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>AUBS</title>
+<script src="aubs-native-facade.js"></script>
+</head>
+<body>
+<script>
+  // Hand off to the app with the constitutional pipeline enabled so the native provider
+  // (local-native) is eligible/selected and the ledger records provenance.
+  location.replace("aubs-app.html?spine=1");
+</script>
+</body>
+</html>
