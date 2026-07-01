@@ -288,6 +288,12 @@
         "Never call yourself by the user's name.";
       rp += " If asked the user's name and it isn't known, say you don't know yet — never guess. " +
         "Be honest, answer directly, never call yourself a language model, and keep replies short.";
+      // ANTI-OVER-REFUSAL: small on-device models decline harmless questions ("can you see the
+      // Great Wall from space?"). Real safety is enforced deterministically BEFORE the model, so
+      // tell it plainly to just answer everyday questions and only decline genuinely harmful ones.
+      rp += " Answer everyday questions — facts, trivia, explanations, advice, help — directly and " +
+        "helpfully; do NOT refuse or say \"I can't assist with that\" for ordinary, harmless questions. " +
+        "Only decline requests that are truly dangerous or harmful.";
       if (hasStyle) rp += " Speak in a \"" + style + "\" style — that's voice only, not your name.";
       return rp;
     }
