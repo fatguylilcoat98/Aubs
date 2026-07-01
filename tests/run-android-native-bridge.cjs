@@ -66,16 +66,19 @@ const webllmGen = () => Promise.resolve({ text: "hi from webllm", finish: "stop"
     ok("stub generate() text flows through the pipeline verbatim", res.status === "ok" && res.output_text === "Native bridge connected." && res.ui.ok === true);
   }
 
-  // ══ 3) Native provider RECEIVES a valid Execution Contract ═════════════════════════════
+  // ══ 3) Native runtime RECEIVES a governed request: valid Execution Contract + formatted prompt ═
   {
-    let seenContract = null;
-    const capturing = stubBridge({ generate: function (ctx) { seenContract = ctx && ctx.execution_contract; return Promise.resolve({ ok: true, output_text: "ok", model_id: "native-stub", provider_id: "local-native", finish: "stop" }); } });
+    let seen = null;
+    const capturing = stubBridge({ generate: function (req) { seen = req; return Promise.resolve({ text: "ok", finish: "stop" }); } });
     const store = L.createMemoryStore();
     await CHAT.runConstitutionalChat({ text: "hello", generate: webllmGen, nativeBridge: capturing, ledgerStore: store, signingKey: key.privateKey, created_at: T });
-    const valid = seenContract && CAC.validate.validateExecutionContract(seenContract).valid === true;
-    ok("native bridge.generate() receives an Execution Contract", !!seenContract);
-    ok("the Execution Contract the native provider receives is VALID", valid === true);
-    ok("contract names local-native as the allowed provider", seenContract && seenContract.allowed_provider === "local-native");
+    const contract = seen && seen.contract;
+    const valid = contract && CAC.validate.validateExecutionContract(contract).valid === true;
+    ok("native runtime receives an Execution Contract (request.contract)", !!contract);
+    ok("the Execution Contract the native runtime receives is VALID", valid === true);
+    ok("contract names local-native as the allowed provider", contract && contract.allowed_provider === "local-native");
+    ok("native runtime receives a formatted prompt string + stop list", seen && typeof seen.prompt === "string" && seen.prompt.length > 0 && Array.isArray(seen.stop));
+    ok("governed max_tokens flows from the contract to the request", seen && typeof seen.max_tokens === "number" && seen.max_tokens === contract.output_constraints.max_tokens);
   }
 
   // ══ 4) Native provider CANNOT run without a contract (fail closed, bridge never called) ═

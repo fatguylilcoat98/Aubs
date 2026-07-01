@@ -56,7 +56,7 @@ public class MainActivity extends BridgeActivity {
         "    available:function(){ return cache.available===true; }," +
         "    health:function(){ if(!p.health) return Promise.resolve({ok:cache.available===true}); return Promise.resolve(p.health()).then(function(h){return {ok:!!(h&&h.ok===true)};}).catch(function(){return {ok:false};}); }," +
         "    info:function(){ return {runtime:cache.info.runtime, model_id:cache.info.model_id}; }," +
-        "    generate:function(ctx){ ctx=ctx||{}; var req={messages:ctx.messages||(ctx.intent&&ctx.intent.messages)||[], contract:ctx.execution_contract||null, options:ctx.options||{}}; return Promise.resolve(p.generate(req)); }" +
+        "    generate:function(request){ return Promise.resolve(p.generate(request||{})); }" +
         "  };" +
         "}catch(e){}})();";
 }

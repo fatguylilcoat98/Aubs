@@ -6,7 +6,7 @@
    - Cross-origin (model CDN, esm.run, fonts): never intercepted —
      WebLLM caches the model itself.
    Bump CACHE to force clients onto fresh code. */
-const CACHE = "aubs-shell-v43";
+const CACHE = "aubs-shell-v44";
 const STATIC = [
   "./manifest.json","./icon-192.png","./icon-512.png",
   "./apple-touch-icon.png","./favicon.png","./aubs-landing-art.png",
@@ -15,7 +15,7 @@ const STATIC = [
   "./core/browser-assets.js",
   "./core/cac/validate.js","./core/cac/builders.js","./core/cac/decision-record-adapter.js","./core/cac/index.js",
   "./core/gel/evaluate.js","./core/gel/simulator.js","./core/gel/index.js",
-  "./core/kernel/plan-builder.js","./core/kernel/adapters.js","./core/kernel/explanation.js","./core/kernel/execute.js","./core/kernel/index.js","./core/kernel/chat-bridge.js","./core/kernel/native-bridge.js",
+  "./core/kernel/plan-builder.js","./core/kernel/adapters.js","./core/kernel/explanation.js","./core/kernel/execute.js","./core/kernel/index.js","./core/kernel/chat-bridge.js","./core/model/adapters.js","./core/kernel/native-bridge.js",
   // Full constitutional stack (M5–M14) — precached so the constitutional chat path
   // (?spine=1) and offline replay/audit work fully offline. Topological load order.
   "./core/providers/capabilities.js","./core/providers/drift-shield.js","./core/providers/eligibility.js","./core/providers/registry.js","./core/providers/fake-providers.js","./core/providers/openai-adapter.js","./core/providers/endpoint.js","./core/providers/index.js",

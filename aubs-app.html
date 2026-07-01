@@ -370,6 +370,10 @@ body{background:var(--bgbase);color:var(--ink);font-family:var(--font-body);
 <script src="core/providers/openai-adapter.js"></script>
 <script src="core/providers/endpoint.js"></script>
 <script src="core/providers/index.js"></script>
+<!-- Model adapters: the ONE model-specific place (chat templates per GGUF family). Loaded
+     before native-bridge.js (which reads AUBS_MODEL_ADAPTERS). Pure data/formatting; inert
+     until the native provider actually runs, so default Pages behaviour is unchanged. -->
+<script src="core/model/adapters.js"></script>
 <!-- Native provider seam (local-native): registers a faster on-device runtime ONLY when a
      native bridge (Capacitor plugin / window.AUBSNative) is present. Absent in a plain browser
      → nothing registers, WebLLM stays the floor, default Pages behaviour unchanged. Loads after
@@ -1572,6 +1576,10 @@ async function runModelTurnThroughConstitution(text, sent, bubble, aiWrap, t0, r
     const c=await ensureLedger();                  // same IndexedDB ledger the verifier reads
     res=await window.AUBS_CONSTITUTION_CHAT.runConstitutionalChat({
       text, generate, model_id:(chosenModel||"local-model"),
+      // Native path (local-native): hand the SAME conversation to the native provider so its
+      // model adapter can apply the model-specific chat template. Inert without a native bridge
+      // (WebLLM path ignores `messages`), so default Pages behaviour is unchanged.
+      messages: sent,
       ledgerStore:c?c.store:null, signingKey:(c&&c.keys)?c.keys.privateKey:null,
       // Unified Identity (default OFF). identityV2 reads FLAG_IDENTITY_V2; appIdentity is the
       // OS-declared app (none by default → AUBS fallback; ?app=splendor|lylo for testing). The

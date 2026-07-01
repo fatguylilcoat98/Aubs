@@ -79,7 +79,14 @@
     // local-webllm remains the fallback. Native is an ADD, never a requirement.
     var nativeReg = { registered: false, reason: "seam_absent" };
     if (NATIVE && NATIVE.registerNativeProvider) {
-      nativeReg = NATIVE.registerNativeProvider(providerRegistry, opts.nativeBridge, { model_id: opts.native_model_id });
+      // Thread the turn's messages so the native adapter can apply the model-specific chat
+      // template; the adapter picks itself by the native model_id (the loaded GGUF). model_id
+      // is a fallback only — the bridge's info().model_id wins for template + provenance.
+      nativeReg = NATIVE.registerNativeProvider(providerRegistry, opts.nativeBridge, {
+        model_id: opts.native_model_id,
+        messages: opts.messages || null,
+        options: opts.nativeOptions || null
+      });
     }
     // The skill may only DECLARE local-native once it is actually registered (the skill registry
     // rejects an undeclared/unknown provider). So the allow-list is derived from the registry.
