@@ -1620,7 +1620,21 @@ async function runModelTurnThroughConstitution(text, sent, bubble, aiWrap, t0, r
     // Engine failure (the founder's "Something went wrong…" path): re-examine for crisis BEFORE
     // showing the generic message — a crisis turn must never end on a crash (the Final Principle).
     if(!ui.blocked && crisisBackstop(text, bubble)) return;
-    bubble.textContent=ui.text;
+    // WebGPU death path: if the on-device engine crashed and recovery left it null (Adreno GPU
+    // buffer fault / "device is lost"), a page reload is the only in-browser cure — so say that
+    // HONESTLY and give a one-tap Restart, instead of a vague message that repeats every turn.
+    if(!ui.blocked && !endpointActive && !engine){
+      bubble.textContent="The on-device engine crashed and couldn't restart — this phone's browser GPU hit its memory limit. Tap Restart to reload it. (Nothing left your device.)";
+      try{
+        const btn=document.createElement('button');
+        btn.textContent='Restart engine';
+        btn.style.cssText='margin-top:8px;padding:6px 14px;border-radius:8px;border:1px solid var(--c1,#4FD4FF);background:transparent;color:var(--ink,#cfe);font:inherit;font-size:0.85em;cursor:pointer';
+        btn.onclick=()=>{ try{ btn.disabled=true; btn.textContent='Restarting…'; }catch(_){} location.reload(); };
+        aiWrap.appendChild(btn);
+      }catch(_){}
+    } else {
+      bubble.textContent=ui.text;
+    }
     if(ui.blocked){ history.push({role:"assistant",content:ui.text}); saveHistory(history.slice(1)); }
   }
   attachKernelWhy(aiWrap, res);
