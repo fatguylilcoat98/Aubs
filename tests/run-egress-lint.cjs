@@ -15,7 +15,8 @@ const GATEWAY = "core/trust/egress.js";
 const MIGRATION_DEBT = {
   "core/providers/openai-adapter.js": "model transport — migrate behind egress() at wire-up",
   "core/providers/endpoint.js": "model endpoint transport (local/remote OpenAI-compatible) — route behind egress() at wire-up",
-  "sw.js": "PWA service worker fetch — audit/route at wire-up"
+  "sw.js": "PWA service worker fetch — audit/route at wire-up",
+  "capacitor-shell/www/index.html": "Android shell auto-update probe — no-cors reachability ping to the app's OWN Pages origin (loads code, sends no user data); shell-only, never served on Pages"
 };
 const ALLOW = new Set([GATEWAY, ...Object.keys(MIGRATION_DEBT)]);
 

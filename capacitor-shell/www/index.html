@@ -1,15 +1,22 @@
 <!doctype html>
 <!--
-  AUBS Android shell — entry (Phase 1)
+  AUBS Android shell — entry (auto-update)
   The Good Neighbor Guard · Christopher Hughes · Sacramento, CA
   AI collaborators: Claude · GPT · Gemini · Groq · Truth · Safety · We Got Your Back
 
-  This index.html exists ONLY inside the Capacitor Android shell's webDir. It is never
-  served by GitHub Pages. `copy-web.sh` copies the PWA next to it. We load the native
-  facade first (installs window.AUBSNative when the AubsNative plugin is present), then
-  hand off to the real app at aubs-app.html with the constitutional path on (?spine=1),
-  so a native turn runs the full pipeline. The native MainActivity ALSO re-injects the
-  facade on every page load, so window.AUBSNative survives the navigation to aubs-app.html.
+  This index.html exists ONLY inside the Capacitor Android shell's webDir. Never served by
+  GitHub Pages. It is the AUTO-UPDATE switch:
+
+    • Default: load the LIVE web app from GitHub Pages, so a merge to main → Pages deploy →
+      reopening the APK gets the latest code. No laptop rebuild, no model re-download.
+    • Fallback: if the live URL is unreachable (offline / Pages down), load the BUNDLED copy
+      (aubs-app.html, copied in by copy-web.sh) so the app still works offline.
+    • Force bundled/offline for testing with ?local=1 (or localStorage aubs_shell_local=1).
+
+  The native GGUF bridge works on the LIVE page too: MainActivity re-injects window.AUBSNative
+  on every page load, and capacitor.config allowNavigation lets the WebView load the Pages
+  origin in-app (so window.Capacitor.Plugins.AubsNative is available there). The sideloaded
+  model in app storage is untouched either way.
 -->
 <html lang="en">
 <head>
@@ -18,11 +25,35 @@
 <title>AUBS</title>
 <script src="aubs-native-facade.js"></script>
 </head>
-<body>
+<body style="background:#04050C;color:#cfe;font-family:system-ui;margin:0">
+<div id="msg" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;font-size:15px;opacity:.7">Starting AUBS…</div>
 <script>
-  // Hand off to the app with the constitutional pipeline enabled so the native provider
-  // (local-native) is eligible/selected and the ledger records provenance.
-  location.replace("aubs-app.html?spine=1");
+(function () {
+  "use strict";
+  var HOST   = "https://aubs.thegoodneighborguard.com";
+  var REMOTE = HOST + "/aubs-app.html?spine=1";   // live Pages code (auto-updates)
+  var LOCAL  = "aubs-app.html?spine=1";           // bundled copy (offline fallback)
+  var msg = document.getElementById("msg");
+
+  // Explicit offline/bundled override for testing.
+  var forceLocal = /[?&]local=1\b/.test(location.search);
+  try { if (localStorage.getItem("aubs_shell_local") === "1") forceLocal = true; } catch (e) {}
+  if (forceLocal) { go(LOCAL, "bundled (forced)"); return; }
+
+  // Reachability probe: a no-cors GET resolves (opaque) if the origin is reachable, rejects if
+  // the network is down. Race it against a short timeout so we fall back fast when offline.
+  var done = false;
+  function go(url, why) { if (done) return; done = true; try { msg.textContent = "Loading " + why + "…"; } catch (e) {} location.replace(url); }
+
+  var timer = setTimeout(function () { go(LOCAL, "offline copy"); }, 3000);
+  try {
+    fetch(REMOTE, { method: "GET", mode: "no-cors", cache: "no-store" })
+      .then(function () { clearTimeout(timer); go(REMOTE, "latest"); })
+      .catch(function () { clearTimeout(timer); go(LOCAL, "offline copy"); });
+  } catch (e) {
+    clearTimeout(timer); go(LOCAL, "offline copy");
+  }
+})();
 </script>
 </body>
 </html>
