@@ -370,6 +370,11 @@ body{background:var(--bgbase);color:var(--ink);font-family:var(--font-body);
 <script src="core/providers/openai-adapter.js"></script>
 <script src="core/providers/endpoint.js"></script>
 <script src="core/providers/index.js"></script>
+<!-- Native provider seam (local-native): registers a faster on-device runtime ONLY when a
+     native bridge (Capacitor plugin / window.AUBSNative) is present. Absent in a plain browser
+     → nothing registers, WebLLM stays the floor, default Pages behaviour unchanged. Loads after
+     providers (reads AUBS_PROVIDERS) and before constitution/chat.js (reads AUBS_NATIVE_BRIDGE). -->
+<script src="core/kernel/native-bridge.js"></script>
 <script src="core/memory/types.js"></script>
 <script src="core/memory/store.js"></script>
 <script src="core/memory/permissions.js"></script>
