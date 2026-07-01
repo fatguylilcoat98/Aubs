@@ -73,18 +73,13 @@
     // sync provenance metadata surfaced in the ledger / Glass Box
     info: function () { return { runtime: cache.info.runtime, model_id: cache.info.model_id }; },
 
-    // async completion. ctx carries { intent, execution_contract, ... } from the pipeline.
-    // Returns the plugin's normalized response; the seam re-stamps provider_id="local-native".
-    // A throw or a malformed response is normalized to an honest failure by the seam (fail closed).
-    generate: function (ctx) {
-      ctx = ctx || {};
-      var request = {
-        messages: ctx.messages || (ctx.intent && ctx.intent.messages) || [],
-        // Pass the governed contract through so the native side can honour output constraints.
-        contract: ctx.execution_contract || null,
-        options: ctx.options || {}
-      };
-      return Promise.resolve(plugin.generate(request));
+    // async completion. Phase 2: the AUBS seam already applied the model-specific chat template
+    // and passes a GENERIC request { prompt, stop, max_tokens, temperature, messages, model_id,
+    // adapter_id, contract }. We forward it verbatim to the native runtime, which runs raw
+    // completion on request.prompt (it applies NO template of its own). Returns { text, finish }.
+    // A throw or malformed response is normalized to an honest failure by the seam (fail closed).
+    generate: function (request) {
+      return Promise.resolve(plugin.generate(request || {}));
     }
   };
 })();
