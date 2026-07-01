@@ -22,17 +22,22 @@
   var SKILLREG = isNode ? require("../skills/registry")  : (typeof window !== "undefined" ? window.AUBS_SKILL_REGISTRY : null);
   var PIPE     = isNode ? require("./pipeline")          : (typeof window !== "undefined" ? window.AUBS_CONSTITUTION_PIPELINE : null);
   var TRUST    = isNode ? require("../trust")            : (typeof window !== "undefined" ? window.AUBS_TRUST : null);
+  var NATIVE   = isNode ? require("../kernel/native-bridge") : (typeof window !== "undefined" ? window.AUBS_NATIVE_BRIDGE : null);
 
   // The on-device chat skill: a low-risk, fully-local capability that DECLARES exactly one
   // provider (the local model) and nothing else — no tools, no network, no memory scopes.
   // The pipeline executes via the provider; execute() is a required-but-unused passthrough
   // (skills declare/request resources, they never run them — only the kernel executes).
-  function makeLocalChatSkill() {
+  // allowedProviders defaults to the WebLLM floor. buildChatEnv passes ["local-native",
+  // "local-webllm"] ONLY when the native provider was actually registered — the skill registry
+  // rejects an allowed_provider that isn't in the registry, so we never declare local-native
+  // unless it exists. With no bridge the declaration is byte-identical to before.
+  function makeLocalChatSkill(allowedProviders) {
     return {
       skill_id: "local_chat", name: "Local Chat", version: "1.0.0",
       description: "Answer the user on-device using the local model. Nothing leaves the device.",
       inputs: ["message"], outputs: ["answer"],
-      required_permissions: [], allowed_tools: [], allowed_providers: ["local-webllm"],
+      required_permissions: [], allowed_tools: [], allowed_providers: allowedProviders || ["local-webllm"],
       allowed_memory_scopes: [], requires_network: false, requires_user_confirmation: false,
       risk_level: "low", supported_operations: ["chat"], enabled: true, metadata: { builtin: true },
       execute: function () { return Promise.resolve({ status: "success", output_text: "", output_classification: "none" }); }
@@ -65,10 +70,23 @@
   function buildChatEnv(opts) {
     opts = opts || {};
     var providerRegistry = PROV.createRegistry();
+    // The offline FLOOR: the in-browser WebLLM provider is always registered.
     providerRegistry.register(makeLocalProvider(opts.generate, opts.model_id));
+    // The faster native runtime (local-native) is registered ONLY when a native bridge is
+    // present (Capacitor plugin / injected bridge). Absent → nothing added, WebLLM stays sole
+    // local provider, default Pages behaviour unchanged. When present, eligibility's selection
+    // preference makes local-native win over local-webllm; if it ever fails eligibility/health,
+    // local-webllm remains the fallback. Native is an ADD, never a requirement.
+    var nativeReg = { registered: false, reason: "seam_absent" };
+    if (NATIVE && NATIVE.registerNativeProvider) {
+      nativeReg = NATIVE.registerNativeProvider(providerRegistry, opts.nativeBridge, { model_id: opts.native_model_id });
+    }
+    // The skill may only DECLARE local-native once it is actually registered (the skill registry
+    // rejects an undeclared/unknown provider). So the allow-list is derived from the registry.
+    var allowed = nativeReg.registered ? ["local-native", "local-webllm"] : ["local-webllm"];
     var skillRegistry = SKILLREG.createSkillRegistry({ providerRegistry: providerRegistry });
-    var reg = skillRegistry.registerSkill(makeLocalChatSkill());
-    return { providerRegistry: providerRegistry, skillRegistry: skillRegistry, skillRegistered: reg };
+    var reg = skillRegistry.registerSkill(makeLocalChatSkill(allowed));
+    return { providerRegistry: providerRegistry, skillRegistry: skillRegistry, skillRegistered: reg, nativeRegistered: nativeReg };
   }
 
   // Drive ONE constitutional chat turn. Returns the pipeline state plus a UI view derived
