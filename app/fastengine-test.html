@@ -574,8 +574,15 @@
             { role: 'user', content: prompt }
           ];
 
-          const text = messages.map(m => `${m.role}: ${m.content}`).join('\n') + '\nassistant: ';
-          response = await engine.generate(text);
+          // Pass the messages array directly so WebLLM applies the model's real
+          // chat template (never a pre-flattened "role: content" string).
+          const res = await engine.chat.completions.create({
+            messages: messages,
+            temperature: 0.7,
+            top_p: 0.9,
+            max_tokens: 512
+          });
+          response = res.choices[0]?.message?.content || '';
           isReal = true;
         } else {
           // Mock response
