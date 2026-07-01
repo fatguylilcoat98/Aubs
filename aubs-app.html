@@ -592,6 +592,48 @@ function aubsRuntimeMetaFull(){
   return meta;
 }
 
+/* ── Runtime debug visibility — FLAG_DEBUG (default OFF) ─────────────────────────────
+   Dogfood/diagnostic only (Article 6 convention): never a product UI, never on by default.
+   Enable per-session: ?debug=1 (or aubs_debug=1); ?debug=0 turns it off and clears the key.
+   Always-on lines (terse, one per turn, same style as the existing "[AUBS] device:" log):
+   which model/provider answers, whether a native bridge + GGUF exist, why native was NOT
+   used, and every validator/guard rejection or rewrite. Debug-mode-only payloads (verbose):
+   the EXACT final messages array sent to the model and the RAW model output before any
+   validator/postprocessing. Read-only observability — never changes what any turn does. */
+let FLAG_DEBUG=false;
+try{
+  const qp=new URLSearchParams(location.search);
+  if(qp.get('debug')==='1'||localStorage.getItem('aubs_debug')==='1') FLAG_DEBUG=true;
+  if(qp.get('debug')==='0'){ FLAG_DEBUG=false; try{ localStorage.removeItem('aubs_debug'); }catch(_){} }
+  if(qp.get('debug')==='1'){ try{ localStorage.setItem('aubs_debug','1'); }catch(_){} }
+}catch(e){}
+function dbg(tag, data){
+  if(!FLAG_DEBUG) return;
+  try{
+    // Deep-copy so the console shows the value AS SENT, not a live reference mutated later.
+    if(data===undefined) console.log('[AUBS debug] '+tag);
+    else console.log('[AUBS debug] '+tag, JSON.parse(JSON.stringify(data)));
+  }catch(_){ try{ console.log('[AUBS debug] '+tag, data); }catch(__){} }
+}
+/* One honest snapshot of the native seam: does a bridge exist, is the GGUF runtime actually
+   available, what model does it report, and — when native is NOT in play — the exact reason.
+   Mirrors the registration checks in core/kernel/native-bridge.js (detect → available). */
+function nativeDebugReport(){
+  const NB=(typeof window!=="undefined")?window.AUBS_NATIVE_BRIDGE:null;
+  if(!NB||!NB.detectNativeBridge) return { native_bridge_present:false, gguf_available:false, fallback_reason:"native seam not loaded (core/kernel/native-bridge.js missing)" };
+  let b=null; try{ b=NB.detectNativeBridge(null); }catch(_){}
+  if(!b) return { native_bridge_present:false, gguf_available:false, fallback_reason:"no_native_bridge — no Capacitor plugin / window.AUBSNative (plain browser)" };
+  let avail=false; try{ avail=NB.bridgeAvailable(b)===true; }catch(_){}
+  let info=null; try{ info=(typeof b.info==="function")?b.info():null; }catch(_){}
+  return {
+    native_bridge_present:true,
+    gguf_available:avail,
+    native_runtime:(info&&info.runtime)||null,
+    native_model_id:(info&&info.model_id)||null,
+    fallback_reason: avail?null:"native_bridge_unavailable — bridge present but reports unavailable (GGUF not loaded)"
+  };
+}
+
 /* ── Persona System v1 — FLAG_PERSONA (default OFF) ──────────────────────────────────
    When ON, the runtime OWNS who the assistant is being: a structured persona is resolved
    deterministically and compiled into a system instruction (Tier-1 injection) that the model
@@ -1248,6 +1290,14 @@ window.startDownload=async function(tier){
       const pct=Math.round((r.progress||0)*100); setPct(pct,r.text||"Loading…");
       document.getElementById('dlSub').textContent=pct<100?("Loading "+chosenModel+" — happens once, then offline."):"Almost ready…";
     }});
+    // Debug visibility: the EXACT WebLLM model id that loaded (after resolve/?model= override),
+    // plus the native-seam snapshot — so a phone session shows at a glance what will answer.
+    try{ const _n=nativeDebugReport();
+      console.log('[AUBS] engine loaded: webllm_model_id='+chosenModel
+        +' · native_bridge='+(_n.native_bridge_present?'yes':'no')
+        +' · gguf='+(_n.gguf_available?('yes'+(_n.native_model_id?(' ('+_n.native_model_id+')'):'')):'no')
+        +(_n.fallback_reason?(' · native_fallback='+_n.fallback_reason):''));
+    }catch(_){}
     enterChat(tier);
   }catch(err){
     document.getElementById('dlTitle').textContent="Something went wrong";
@@ -1410,6 +1460,18 @@ window.send=async function(){
         ? SPINE.fallbackPrompt({ entries:routerEntries, persona:S.aiName, instructions:S.instructions })
         : buildSystemPrompt(promptMode(text)) };
       const sent=contextMessages();                   // exact messages sent to the model (logged in provenance)
+      // Debug visibility (one terse line per model turn): the model that will answer, the
+      // provider path, and the honest native-seam state incl. why native is NOT selected.
+      try{ const _n=nativeDebugReport();
+        console.log('[AUBS] turn: model='+(endpointActive?(endpointModel||'?'):(chosenModel||'?'))
+          +' · provider='+(endpointActive?('endpoint:'+(endpointKind||'?')):(constitutionChatOn()?('pipeline-selects'+((_n.native_bridge_present&&_n.gguf_available)?' (local-native registered)':' (local-webllm only)')):'local-webllm'))
+          +' · path='+(constitutionChatOn()?'constitution':(kernelChatOn()?'kernel':'direct'))
+          +' · native_bridge='+(_n.native_bridge_present?'yes':'no')
+          +' · gguf='+(_n.gguf_available?'yes':'no')
+          +(_n.fallback_reason?(' · native_fallback='+_n.fallback_reason):''));
+      }catch(_){}
+      // Dev mode (?debug=1): the EXACT final messages array handed to the model, deep-copied.
+      dbg('turn: exact messages sent to model', sent);
       if(constitutionChatOn()){
         // Milestone 14 (FLAG_CONSTITUTION_CHAT): run this real model turn through the FULL
         // constitutional pipeline — Intent→Plan(planner)→GEL→Eligibility→(the SAME WebLLM
@@ -1434,6 +1496,7 @@ window.send=async function(){
           const mc=await modelComplete(sent, { temperature:0.7, max_tokens:256 });   // endpoint or WebLLM
           full = mc.text || "";
           finish = mc.finish || finish;
+          dbg('turn: raw model output (before validator/postprocessing)', full);
           if(full){ bubble.textContent=full; thread.scrollTop=thread.scrollHeight; }
           fatalErr=null; break;                       // generation completed
         }catch(genErr){
@@ -1452,8 +1515,8 @@ window.send=async function(){
       if(full.length>0){
         // FLAG_ROUTER narrow cleanup: strip "language model"/false-identity boilerplate +
         // collapse repetition. Never edits facts/numbers/refusals; reverts if it guts the text.
-        if(routerOn && SPINE.cleanModelOutput){ try{ const c=SPINE.cleanModelOutput(full); if(c&&c.text) full=c.text; }catch(_){} }
-        full=personaGuardOut(full);   // FLAG_PERSONA: strip model-identity / AI-disclaimer leaks (no-op when off)
+        if(routerOn && SPINE.cleanModelOutput){ try{ const c=SPINE.cleanModelOutput(full); if(c&&c.text){ if(c.text!==full) console.log('[AUBS] validator: cleanModelOutput rewrote the reply (identity boilerplate / repetition stripped)'); full=c.text; } }catch(_){} }
+        { const _pg=personaGuardOut(full); if(_pg!==full){ console.log('[AUBS] validator: personaGuard stripped a model-identity / AI-disclaimer leak'); full=_pg; } }   // FLAG_PERSONA (no-op when off)
         bubble.textContent=full;
         history.push({role:"assistant",content:full});
         saveHistory(history.slice(1));
@@ -1494,6 +1557,7 @@ async function runModelTurnThroughKernel(text, sent, bubble, aiWrap, t0, routerO
         const mc=await modelComplete(sent, { temperature:0.7, max_tokens:256 });   // endpoint or WebLLM
         full=mc.text||"";
         finish=mc.finish||finish;
+        dbg('turn: raw model output (before validator/postprocessing)', full);
         fatalErr=null; break;
       }catch(genErr){
         fatalErr=genErr;
@@ -1523,11 +1587,17 @@ async function runModelTurnThroughKernel(text, sent, bubble, aiWrap, t0, routerO
     return;
   }
   const ui=res.ui||{};
+  // Debug visibility: the kernel's recorded outcome — decision, rule, and rejection reason.
+  try{ const _g=res.governance||{}; const _r=res.record||{};
+    console.log('[AUBS] kernel result: provider='+(_r.provider||'local-webllm')+' · model='+(_r.model_id||chosenModel||'?')
+      +' · decision='+(_g.decision||'?')+(_g.winning_rule?(' · rule='+_g.winning_rule):'')
+      +(ui.ok?'':(' · '+(ui.blocked?'BLOCKED':'FAILED')+' — '+(ui.explanation||'no explanation recorded'))));
+  }catch(_){}
   if(ui.ok){
     let outText=ui.text;
     // Same narrow router cleanup the non-kernel path applies (only when the router is on).
-    if(routerOn && SPINE && SPINE.cleanModelOutput){ try{ const cc=SPINE.cleanModelOutput(outText); if(cc&&cc.text) outText=cc.text; }catch(_){} }
-    outText=personaGuardOut(outText);   // FLAG_PERSONA (no-op when off)
+    if(routerOn && SPINE && SPINE.cleanModelOutput){ try{ const cc=SPINE.cleanModelOutput(outText); if(cc&&cc.text){ if(cc.text!==outText) console.log('[AUBS] validator: cleanModelOutput rewrote the reply (identity boilerplate / repetition stripped)'); outText=cc.text; } }catch(_){} }
+    { const _pg=personaGuardOut(outText); if(_pg!==outText){ console.log('[AUBS] validator: personaGuard stripped a model-identity / AI-disclaimer leak'); outText=_pg; } }   // FLAG_PERSONA (no-op when off)
     bubble.textContent=outText;
     history.push({role:"assistant",content:outText}); saveHistory(history.slice(1));
     captureMemories(text);
@@ -1557,6 +1627,7 @@ async function runModelTurnThroughConstitution(text, sent, bubble, aiWrap, t0, r
         const mc=await modelComplete(sent, { temperature:0.7, max_tokens:256 });   // endpoint or WebLLM
         full=mc.text||"";
         finish=mc.finish||finish;
+        dbg('turn: raw model output (before validator/postprocessing)', full);
         fatalErr=null; break;
       }catch(genErr){
         fatalErr=genErr;
@@ -1603,14 +1674,25 @@ async function runModelTurnThroughConstitution(text, sent, bubble, aiWrap, t0, r
     return;
   }
   const ui=res.ui||{};
+  // Debug visibility: the pipeline's recorded outcome — WHICH provider actually answered
+  // (local-native vs local-webllm), the eligibility rejections (the honest reason native was
+  // not selected when it was registered), the governance decision, and the grounding tag.
+  try{ const _g=res.governance||{}; const _r=res.record||{}; const _e=res.eligibility||null;
+    const _rej=(_e&&_e.rejected&&_e.rejected.length)?(' · rejected='+_e.rejected.map(function(r){ return (r.provider_id||'?')+'('+((r.reasons||[]).join(',')||'no reason recorded')+')'; }).join(' ')):'';
+    console.log('[AUBS] pipeline result: provider='+(res.selected_provider||_r.provider||'?')+' · model='+(_r.model_id||chosenModel||'?')
+      +' · decision='+(_g.decision||'?')+(_g.winning_rule?(' · rule='+_g.winning_rule):'')
+      +' · grounding='+(ui.grounding||'—')+_rej
+      +(ui.ok?'':(' · '+(ui.blocked?'BLOCKED':'FAILED')+' — '+(ui.explanation||'no explanation recorded'))));
+    dbg('turn: pipeline detail', { selected_provider:res.selected_provider||null, eligibility:_e, governance:_g, grounding:res.grounding||null, record:_r, provenance:ui.provenance||null });
+  }catch(_){}
   if(ui.ok){
     let outText=ui.text;
-    if(routerOn && SPINE && SPINE.cleanModelOutput){ try{ const cc=SPINE.cleanModelOutput(outText); if(cc&&cc.text) outText=cc.text; }catch(_){} }
+    if(routerOn && SPINE && SPINE.cleanModelOutput){ try{ const cc=SPINE.cleanModelOutput(outText); if(cc&&cc.text){ if(cc.text!==outText) console.log('[AUBS] validator: cleanModelOutput rewrote the reply (identity boilerplate / repetition stripped)'); outText=cc.text; } }catch(_){} }
     // Unified Identity GUARD (flag ON, model turns only): neutralize a wrong assistant-name claim,
     // a false AUBS expansion, or an invented user name. Skipped on deterministic identity turns
     // (res.identity set) and when the flag is off. Deterministic, no model in the loop.
-    if(!res.identity && SPINE && SPINE.identityGuard){ const _r=resolvedIdentity(); if(_r){ try{ outText=SPINE.identityGuard(outText, _r); }catch(_){} } }
-    if(!res.identity) outText=personaGuardOut(outText);   // FLAG_PERSONA: style guard on model turns (no-op when off)
+    if(!res.identity && SPINE && SPINE.identityGuard){ const _r=resolvedIdentity(); if(_r){ try{ const _ig=SPINE.identityGuard(outText, _r); if(_ig!==outText){ console.log('[AUBS] validator: identityGuard rewrote a wrong assistant-name / identity claim'); outText=_ig; } }catch(_){} } }
+    if(!res.identity){ const _pg=personaGuardOut(outText); if(_pg!==outText){ console.log('[AUBS] validator: personaGuard stripped a model-identity / AI-disclaimer leak'); outText=_pg; } }   // FLAG_PERSONA: style guard on model turns (no-op when off)
     bubble.textContent=outText;
     // Trust OS Glass Box — one honest line under the answer, rendered from the Trust Record only.
     if(ui.glass_box_easy && trustOsOn()){ try{ const gx=document.createElement('div'); gx.className='glass-box-easy'; gx.style.cssText='font-size:0.78em;opacity:0.7;margin-top:4px'; gx.textContent='🔎 '+ui.glass_box_easy+(ui.trust_valid?'':' (record unverified)'); aiWrap.appendChild(gx); }catch(_){} }
@@ -1693,7 +1775,10 @@ function logProvenanceFor(query, answer, sentMsgs, t0, aiWrap, routed){
         const v=SPINE.verifyGrounding({ answer, query, memory_ids_in_prompt:idsInPrompt, entries });
         if(v.grounded){ tag='grounded'; cited=[v.id]; groundingSource='spine_verified'; }
       }
-      if(!SPINE.dangerFactCheck(answer).ok){ tag='unknown'; cited=[]; groundingSource=null; }   // Article 3b override
+      if(!SPINE.dangerFactCheck(answer).ok){ tag='unknown'; cited=[]; groundingSource=null; console.log('[AUBS] validator: danger fact-check floor rejected grounding (Article 3b) — tag=unknown'); }   // Article 3b override
+      // Debug visibility: the spine's per-turn verdict — the tag (its confidence class),
+      // the strength tier when grounding v2 is on, and how the grounding was earned.
+      console.log('[AUBS] validator: tag='+tag+(groundingStrength?(' · strength='+groundingStrength):'')+(groundingSource?(' · via '+groundingSource):'')+(cited&&cited.length?(' · cited='+cited.join(',')):''));
     }
     const latency=((window.performance&&performance.now)?performance.now():0)-t0;
     const prov=SPINE.makeProvenance({
