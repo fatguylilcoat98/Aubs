@@ -116,19 +116,29 @@
     config = config || {};
     var PRODUCT_NAME = SYSTEM_IDENTITY.name_default;          // "AUBS" — the runtime/product
     var PRODUCT_EXPANSION = SYSTEM_IDENTITY.expansion;        // canonical, frozen
-    var name, source;
-    if (appIdentity && appIdentity.assistant_name) { name = String(appIdentity.assistant_name).trim(); source = "app"; }
-    else if (config.assistantName && String(config.assistantName).trim()) { name = String(config.assistantName).trim(); source = "user"; }
-    else { name = PRODUCT_NAME; source = "default"; }
+    // The assistant NAME is a field the runtime READS. It is whatever the user (or a governed app)
+    // named it — and NOTHING otherwise. AUBS is the operating system it runs on, NOT a fallback
+    // name. So when no name is set the assistant is UNNAMED (named:false), and every identity
+    // surface says "I don't have a name yet — you run on AUBS" instead of pretending to be "AUBS".
+    var rawName = null, source = "default";
+    if (appIdentity && appIdentity.assistant_name) { rawName = String(appIdentity.assistant_name).trim(); source = "app"; }
+    else if (config.assistantName && String(config.assistantName).trim() && String(config.assistantName).trim().toLowerCase() !== "aubs") {
+      rawName = String(config.assistantName).trim(); source = "user";
+    }
+    var named = !!rawName;
     return {
-      assistantDisplayName: name, assistantNameSource: source,
+      // assistantName is the raw field (null when unnamed). assistantDisplayName keeps a non-null
+      // value (falls back to the product name) ONLY for legacy display readers; identity surfaces
+      // gate on `named`, so an unnamed assistant never introduces itself AS the OS.
+      assistantName: rawName, named: named,
+      assistantDisplayName: rawName || PRODUCT_NAME, assistantNameSource: source,
       productName: PRODUCT_NAME, productExpansion: PRODUCT_EXPANSION,
       appDeclaredIdentity: appIdentity ? (appIdentity.assistant_name || null) : null,
       appId: appIdentity ? (appIdentity.app_id || null) : null,
       personaRef: appIdentity ? (appIdentity.persona_ref || null) : null,
       userName: (config.userName && String(config.userName).trim()) ? String(config.userName).trim() : null,
       activeTone: config.tone || "", customInstructions: config.instructions || "",
-      precedence: { assistant: "app>user>default", chosen: source }
+      precedence: { assistant: "app>user>unnamed", chosen: source }
     };
   }
 
@@ -157,8 +167,13 @@
   function identityRoute(q, resolved) {
     resolved = resolved || {};
     var s = String(q || "");
-    var name = resolved.assistantDisplayName || SYSTEM_IDENTITY.name_default;
-    // 1) USER name — about the USER, never the assistant.
+    var product = resolved.productName || SYSTEM_IDENTITY.name_default;
+    // The assistant is NAMED only if the user gave it a real name (not the OS name). AUBS is the OS.
+    var named = (resolved.named === true) || (!!resolved.assistantName);
+    var name = resolved.assistantName || resolved.assistantDisplayName || SYSTEM_IDENTITY.name_default;
+    // The honest unnamed line — you read the name field, it's empty, so you say so (and name the OS).
+    var UNNAMED = "I don't have a name right now — you haven't named me yet — but I run on the " + product + " operating system. You can name me anytime.";
+    // 1) USER name — about the USER, never the assistant. Read straight from the user field.
     if (isUserNameQuery(s)) {
       return { handled: true, kind: "user_name", model_called: false,
                answer: resolved.userName ? ("Your name is " + resolved.userName + ".") : "I don't know yet — what should I call you?" };
@@ -167,18 +182,16 @@
     if (isAcronymQuery(s)) {
       return { handled: true, kind: "acronym", model_called: false, answer: acronymAnswer() };
     }
-    var product = resolved.productName || SYSTEM_IDENTITY.name_default;
-    var sameAsProduct = name.toLowerCase() === product.toLowerCase();   // bare-OS / no custom name
-    // 3) INTRODUCE — name + runtime, both true at once (no redundant clause when name IS the runtime).
+    // 3) INTRODUCE — read the name field; if unnamed, say so honestly and name the OS.
     if (isIntroduceQuery(s)) {
       return { handled: true, kind: "introduce", model_called: false,
-               answer: sameAsProduct ? ("I'm " + name + ", your private on-device assistant.")
-                                     : ("I'm " + name + ", your private assistant running on " + product + ".") };
+               answer: named ? ("I'm " + name + ", your private assistant running on " + product + ".") : UNNAMED };
     }
     // 4) ASSISTANT identity — "who are you" / "your name" / "are you X".
     if (identityQueryV2(s, name) || identityQueryV2(s, product)) {
+      if (!named) return { handled: true, kind: "assistant_identity", model_called: false, answer: UNNAMED };
       // "who are you" gets name + runtime context; "what's your name" is just the name.
-      if (/\bwho are you\b/i.test(s) && !sameAsProduct) return { handled: true, kind: "assistant_identity", model_called: false, answer: "I'm " + name + ", running locally through " + product + "." };
+      if (/\bwho are you\b/i.test(s)) return { handled: true, kind: "assistant_identity", model_called: false, answer: "I'm " + name + ", running locally through " + product + "." };
       return { handled: true, kind: "assistant_identity", model_called: false, answer: "I'm " + name + "." };
     }
     return { handled: false };
@@ -191,8 +204,29 @@
   function identityGuard(text, resolved) {
     if (!text || !resolved) return text;
     var out = String(text);
-    var name = resolved.assistantDisplayName || SYSTEM_IDENTITY.name_default;
+    var named = (resolved.named === true) || (!!resolved.assistantName);
+    var name = resolved.assistantName || resolved.assistantDisplayName || SYSTEM_IDENTITY.name_default;
     var esc = function (x) { return String(x).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); };
+    // (d) ANTI-MIRROR — the assistant must NEVER adopt the user's name as its own. If the model
+    // says "I'm <userName>" / "my name is <userName>" (the "I'm Chris" leak), correct it to the
+    // assistant's real self-reference: the set name, or an honest "no name yet" when unnamed.
+    if (resolved.userName) {
+      var unames = [String(resolved.userName).trim()];
+      var first = unames[0].split(/\s+/)[0];
+      if (first && first.toLowerCase() !== unames[0].toLowerCase()) unames.push(first);
+      var selfIm = named ? ("I'm " + name) : "I don't have a name yet";
+      var selfMy = named ? ("My name is " + name) : "I don't have a name yet";
+      unames.forEach(function (u) {
+        if (!u) return;
+        out = out.replace(new RegExp("\\bI(?:'?m| am)\\s+" + esc(u) + "\\b", "gi"), selfIm);
+        out = out.replace(new RegExp("\\bmy name(?:'?s| is)\\s+" + esc(u) + "\\b", "gi"), selfMy);
+      });
+    }
+    // Unnamed: a model that claims the OS name AS ITS NAME is corrected to the honest "no name yet".
+    if (!named) {
+      out = out.replace(/\bmy name(?:'?s| is)\s+AUBS\b/gi, "I don't have a name yet");
+      out = out.replace(/\b(?:I(?:'?m| am)|call me)\s+AUBS\b(?!\s+(?:operating|stands|is\s+the|the\s+))/gi, "I don't have a name yet — I run on AUBS");
+    }
     // (b) any "AUBS (stands for|short for|…) <X>" where X ≠ canonical → canonical expansion.
     out = out.replace(/\bAUBS\b[,]?\s+(?:stands for|short for|which stands for|that stands for|is short for|means|standing for|aka|also known as)\s+[^.?!\n]*/gi,
       function (m) { return /Autonomous Unit Brain System/i.test(m) ? m : ("AUBS stands for " + SYSTEM_IDENTITY.expansion); });
@@ -227,13 +261,33 @@
     // and the canonical AUBS expansion is fixed. This is the prompt BACKSTOP; the governed routes
     // are the guarantee. Absent a resolved object → the original wording (flag-OFF byte-identical).
     if (opts.resolved && opts.resolved.assistantDisplayName) {
-      var R = opts.resolved, nm = R.assistantDisplayName, style = String(personaName == null ? "" : personaName).trim();
-      var hasStyle = style && style.toLowerCase() !== nm.toLowerCase() && style.toLowerCase() !== "aubs";
-      var rp = "You are " + nm + ", a private assistant that lives on this phone. You run on " + R.productName +
-        " — the " + R.productExpansion + " — the local runtime on this device. Your name is " + nm + "; " +
-        R.productName + " is the system you run on, not your name. Never invent a different meaning for " +
-        R.productName + " — it stands for " + R.productExpansion + ". If asked the user's name and it isn't known, " +
-        "say you don't know yet — never guess. Be honest, answer directly, never call yourself a language model, and keep replies short.";
+      var R = opts.resolved;
+      var named = (R.named === true) || (!!R.assistantName);
+      var nm = R.assistantName || R.assistantDisplayName;
+      var style = String(personaName == null ? "" : personaName).trim();
+      var hasStyle = style && style.toLowerCase() !== String(nm).toLowerCase() && style.toLowerCase() !== "aubs";
+      // Identity as FACTS the model reads, not prose it can drift from. The name is whatever the
+      // user set; if unset, the model is told plainly it has no name yet and runs on the OS.
+      var rp;
+      if (named) {
+        rp = "You are " + nm + ", a private assistant that lives on this phone. You run on " + R.productName +
+          " — the " + R.productExpansion + " — the local runtime on this device. Your name is " + nm + "; " +
+          R.productName + " is the system you run on, not your name. Never invent a different meaning for " +
+          R.productName + " — it stands for " + R.productExpansion + ".";
+      } else {
+        rp = "You are a private assistant that lives on this phone, running on " + R.productName + " — the " +
+          R.productExpansion + " — the local runtime on this device. You do NOT have a name yet: the user " +
+          "hasn't named you. If asked your name, say you don't have one yet and they can name you anytime; " +
+          R.productName + " is the system you run on, not your name. Never invent a name for yourself.";
+      }
+      // ANTI-MIRROR — the fix for the "I'm Chris" leak. The user's first-person statements are about
+      // the USER, never about you. You never adopt the user's name or identity as your own.
+      rp += " You are the assistant, not the user." +
+        (R.userName ? (" The user's name is " + R.userName + ".") : " You may not know the user's name yet.") +
+        " When the user says \"I'm ...\" or \"my name is ...\", that describes the USER — never yourself. " +
+        "Never call yourself by the user's name.";
+      rp += " If asked the user's name and it isn't known, say you don't know yet — never guess. " +
+        "Be honest, answer directly, never call yourself a language model, and keep replies short.";
       if (hasStyle) rp += " Speak in a \"" + style + "\" style — that's voice only, not your name.";
       return rp;
     }
@@ -1066,10 +1120,13 @@
   function greetingAnswer(persona, style, entries) {
     var live = liveEntries(entries || []), name = null;
     for (var i = 0; i < live.length; i++) { var m = live[i].content.match(/^User's name is (.+?)[.?!]?$/i); if (m) { name = m[1]; break; } }
-    // The greeting embeds an identity claim — it must use the resolved assistant name (persona),
-    // never a hard-coded "AUBS". Falls back to AUBS only when no name is declared (bare OS).
-    var who = (persona && String(persona).trim()) ? String(persona).trim() : SYSTEM_IDENTITY.name_default;
-    return styleWrap("Hey" + (name ? (", " + name) : "") + "! I'm " + who + ", here and ready. What's up?", style, "greeting");
+    // The greeting only claims a name when the assistant actually HAS one (the user named it).
+    // Unnamed (AUBS is the OS, not a name) → a warm greeting with NO "I'm AUBS" self-claim.
+    var p = persona && String(persona).trim();
+    var named = p && p.toLowerCase() !== SYSTEM_IDENTITY.name_default.toLowerCase();
+    var body = named ? ("Hey" + (name ? (", " + name) : "") + "! I'm " + p + ", here and ready. What's up?")
+                     : ("Hey" + (name ? (", " + name) : "") + "! What's up?");
+    return styleWrap(body, style, "greeting");
   }
 
   /* Narrow output cleanup for MODEL answers only. Removes false self-identity / boilerplate

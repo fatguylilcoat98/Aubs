@@ -103,7 +103,9 @@ const OPEN_ENDED = "Write me a two-line poem about the rain.";
   // Spot-check the actual governed values come from OWNED state, not the model.
   {
     const m = MODELS[0]; m.reset();
-    t("governed value: name → 'I'm AUBS.' (owned)", (await ask(m, "What's your name?")).text === "I'm AUBS.");
+    // Name is a FIELD the runtime reads. Unnamed here (no assistant name configured) → the honest
+    // owned answer names the OS, never pretends to BE "AUBS". Still governed (model 0×).
+    t("governed value: name → honest 'no name yet' (owned, reads the empty name field)", /^I don't have a name right now — you haven't named me yet — but I run on the AUBS operating system\./.test((await ask(m, "What's your name?")).text));
     t("governed value: acronym → canonical expansion (owned)", /Autonomous Unit Brain System/.test((await ask(m, "What does AUBS stand for?")).text));
     t("governed value: creator → owned runtime metadata", (await ask(m, "Who made you?")).text === "I was built by Christopher Hughes.");
     t("governed value: date → owned device clock, NOT the model's 2020", (await ask(m, "What is the current date?")).text === "Today is Sunday, June 29, 2026.");

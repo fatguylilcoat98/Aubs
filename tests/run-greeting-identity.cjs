@@ -29,10 +29,16 @@ const TOM = SPINE.resolveRuntimeIdentity({ assistantName: "Tom" });
     r && r.handled && r.intent === "greeting" && /Tom/.test(r.answer) && !/I'm AUBS\b/.test(r.answer));
 }
 
-// bare-OS default is still correct (name = AUBS → greeting says AUBS, no false rewrite)
+// Unnamed default (AUBS is the OS, not a name): the greeting is warm but claims NO name —
+// it must NOT say "I'm AUBS".
 {
   const r = SPINE.routeQuery("Hello", { entries: [], persona: "AUBS", instructions: "" });
-  t("bare-OS 'Hello' → \"I'm AUBS\" (correct; no over-correction)", r.handled && /I'm AUBS\b/.test(r.answer));
+  t("bare-OS 'Hello' → warm greeting, NO 'I'm AUBS' self-claim", r.handled && !/I'm AUBS\b/.test(r.answer) && /what's up\?/i.test(r.answer));
+}
+// A NAMED assistant greets with its name.
+{
+  const r = SPINE.routeQuery("Hello", { entries: [], persona: "Ada", instructions: "" });
+  t("named 'Hello' → \"I'm Ada\" greeting", r.handled && /I'm Ada\b/.test(r.answer));
 }
 
 console.log("\nAssertions: " + pass + "/" + (pass + fail));

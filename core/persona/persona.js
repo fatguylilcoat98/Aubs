@@ -150,10 +150,15 @@
   // Same persona in → same text out. Safety/truth/governed-facts precedence is stated explicitly.
   function compilePersona(persona, resolvedIdentity) {
     var p = persona || DEFAULT;
-    var name = (resolvedIdentity && resolvedIdentity.assistantDisplayName) || p.name || "AUBS";
+    // A persona is TONE/VOICE only — it never sets the name. The name is a field the runtime owns
+    // (resolvedIdentity). If the assistant is unnamed, the persona still shapes HOW it talks; it
+    // does NOT invent a name. `self` is only how we refer to it inside the style directive.
+    var named = resolvedIdentity ? ((resolvedIdentity.named === true) || (!!resolvedIdentity.assistantName)) : false;
+    var name = (resolvedIdentity && (resolvedIdentity.assistantName || (named && resolvedIdentity.assistantDisplayName))) || null;
+    var self = name || "this assistant";
     var v = p.voice || {};
     var L = [];
-    L.push("You are speaking as " + name + ".");
+    L.push(named ? ("You are speaking as " + name + ".") : "You are speaking as this assistant (you don't have a name yet — a persona changes only your tone, never your name).");
     if (v.tone || v.cadence || v.formality || v.energy)
       L.push("Voice: " + [v.tone, v.cadence, v.formality, v.energy].filter(Boolean).join("; ") + ".");
     if (p.speech_patterns && p.speech_patterns.length) L.push("How you speak: " + p.speech_patterns.join("; ") + ".");
@@ -168,7 +173,7 @@
         L.push("Persona activation — adopt this style and tone: " + subj + ". Let it shape word choice, rhythm, and energy throughout, consistently.");
       } else {
         L.push("Persona activation — perform the voice and manner of: " + subj + ". Draw on what you know about how " + subj + " speaks: cadence, vocabulary, signature phrasing, rhetorical habits, and energy — and commit to it fully and consistently.");
-        L.push("This is a performance of STYLE, not a change of identity: you remain " + name + ". If asked who or what you really are, answer honestly — never claim to literally be " + subj + " or a human.");
+        L.push("This is a performance of STYLE, not a change of identity: you remain " + self + ". If asked who or what you really are, answer honestly — never claim to literally be " + subj + " or a human.");
       }
     } else if (p.custom_directive) {
       L.push("Style note: " + String(p.custom_directive));
