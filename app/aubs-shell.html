@@ -1471,7 +1471,7 @@
           result.valid = false;
           result.warnings.push('Response is empty or invalid type');
           result.confidence = 0;
-          return result;
+          return this._logOutcome(result);
         }
 
         const trimmed = response.trim();
@@ -1479,7 +1479,7 @@
           result.valid = false;
           result.warnings.push('Response is empty');
           result.confidence = 0;
-          return result;
+          return this._logOutcome(result);
         }
 
         // 2. Length validation
@@ -1505,7 +1505,7 @@
           result.valid = false;
           result.warnings.push(...safetyIssues);
           result.confidence = 0;
-          return result;
+          return this._logOutcome(result);
         }
 
         // 5. Malformation detection
@@ -1530,6 +1530,21 @@
           }
         }
 
+        return this._logOutcome(result);
+      },
+
+      /**
+       * Observability: surface rejected / confidence-reduced responses during testing.
+       * Logs only; never changes the result.
+       */
+      _logOutcome(result) {
+        if (!result.valid || result.confidence < 1.0) {
+          console.log(
+            `[OutputValidator] ${result.valid ? 'confidence reduced' : 'response rejected'}` +
+            ` — reason: ${result.warnings.join('; ') || '(none given)'}` +
+            ` — confidence: ${result.confidence}`
+          );
+        }
         return result;
       },
 
@@ -2255,14 +2270,27 @@
         let tokenCount = 0;
 
         try {
-          const prompt = this._formatMessages(messages);
           let fullResponse = '';
 
-          const message = await this.engine.generate(prompt, (chunk) => {
-            fullResponse += chunk;
+          // WebLLM chat API: pass the messages array directly so the engine applies
+          // the model's real chat template (special tokens), instead of a pre-flattened
+          // "System:/User:/Assistant:" string that turns the model into a raw completer.
+          const chunks = await this.engine.chat.completions.create({
+            messages: messages,
+            stream: true,
+            temperature: 0.7,
+            top_p: 0.9,
+            max_tokens: 512
+          });
+
+          for await (const chunk of chunks) {
+            const delta = chunk.choices[0]?.delta?.content || '';
+            if (delta.length === 0) continue;
+
+            fullResponse += delta;
             tokenCount++;
 
-            if (firstTokenTime === null && chunk.length > 0) {
+            if (firstTokenTime === null) {
               firstTokenTime = Date.now() - sendStartTime;
             }
 
@@ -2270,10 +2298,10 @@
               this.onProgress({
                 stage: 'streaming',
                 tokens: tokenCount,
-                text: chunk
+                text: delta
               });
             }
-          });
+          }
 
           const totalTime = Date.now() - sendStartTime;
 
@@ -2284,13 +2312,15 @@
 
           this.isSending = false;
 
+          const promptChars = messages.reduce((sum, m) => sum + ((m && m.content) ? m.content.length : 0), 0);
+
           return {
             success: true,
-            message: fullResponse || message,
+            message: fullResponse,
             usage: {
-              prompt_tokens: Math.ceil(prompt.length / 4),
+              prompt_tokens: Math.ceil(promptChars / 4),
               completion_tokens: tokenCount,
-              total_tokens: Math.ceil(prompt.length / 4) + tokenCount
+              total_tokens: Math.ceil(promptChars / 4) + tokenCount
             },
             metrics: { ...this.metrics }
           };
@@ -2323,19 +2353,10 @@
         };
       }
 
-      _formatMessages(messages) {
-        let prompt = '';
-        messages.forEach((msg) => {
-          if (msg.role === 'system') prompt += `System: ${msg.content}\n\n`;
-          else if (msg.role === 'user') prompt += `User: ${msg.content}\n`;
-          else if (msg.role === 'assistant') prompt += `Assistant: ${msg.content}\n`;
-        });
-        prompt += 'Assistant: ';
-        return prompt;
-      }
     }
 
     // ─── MOCK ENGINE ───
+    class MockEngine {
       constructor() {
         this.ready = false;
         this.name = 'MockEngine';
@@ -2569,12 +2590,31 @@ SAFETY
 Keep your replies concise and to the point.`,
 
       /**
+       * IDENTITY CORE (COMPACT) — for small models (1B/3B) that lose coherence
+       * on the full instruction set. Same rules, minimal words.
+       */
+      IDENTITY_CORE_COMPACT: `You are a helpful, honest assistant.
+- Be honest. If you do not know something, say "I don't know" instead of guessing.
+- Be concise.
+- Refuse requests that could cause harm, clearly and kindly.`,
+
+      /**
+       * Pick the identity core for the loaded model: small models (1B/3B)
+       * get the compact variant; everything else gets the full core.
+       */
+      selectIdentityCore() {
+        const modelId = (typeof ModelAdapter !== 'undefined' && ModelAdapter.engine && ModelAdapter.engine.model) || '';
+        const isSmallModel = modelId.includes('1B') || modelId.includes('3B');
+        return isSmallModel ? this.IDENTITY_CORE_COMPACT : this.IDENTITY_CORE;
+      },
+
+      /**
        * Build system prompt from AppState
        * Order: Identity Core → Personality → Memory Recall → Conditional Instructions
        */
       buildSystemPrompt() {
         const state = getState();
-        let prompt = this.IDENTITY_CORE + "\n\n";
+        let prompt = this.selectIdentityCore() + "\n\n";
 
         // PERSONALITY LAYER
         const personalitySection = [];
@@ -2691,6 +2731,7 @@ Keep your replies concise and to the point.`,
     };
 
     // ─── EXISTING FUNCTIONS ───
+    function showScreen(screenId) {
       // Hide all screens
       document.querySelectorAll('.screen').forEach(screen => {
         screen.classList.remove('active');
