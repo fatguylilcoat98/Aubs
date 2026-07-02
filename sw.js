@@ -6,8 +6,9 @@
    - Cross-origin (model CDN, esm.run, fonts): never intercepted —
      WebLLM caches the model itself.
    Bump CACHE to force clients onto fresh code. */
-const CACHE = "aubs-shell-v46";
+const CACHE = "aubs-shell-v47";
 const STATIC = [
+  "./build-info.js",
   "./manifest.json","./icon-192.png","./icon-512.png",
   "./apple-touch-icon.png","./favicon.png","./aubs-landing-art.png",
   "./spine/spine.js","./spine/ledger.js",

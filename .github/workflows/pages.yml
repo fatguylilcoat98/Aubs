@@ -1,0 +1,45 @@
+name: Deploy Pages (stamped build)
+
+# Publishes the site with a per-deploy build stamp: tools/stamp-build.cjs regenerates
+# build-info.js (VERSION + short git hash + build time) INSIDE the published artifact,
+# so the on-device footer visibly changes on every deploy. The committed build-info.js
+# stays a "dev" fallback — nothing is committed back (no workflow loops).
+#
+# ONE-TIME SETUP: in the repo's Settings → Pages, set Source to "GitHub Actions"
+# (was "Deploy from a branch"). Until that is flipped, this workflow still runs and
+# builds the stamped artifact, but the branch deploy keeps serving the "dev" stamp.
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Stamp build-info.js and deploy
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Stamp build-info.js (VERSION + short git hash + build time)
+        run: node tools/stamp-build.cjs
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - id: deployment
+        uses: actions/deploy-pages@v4
