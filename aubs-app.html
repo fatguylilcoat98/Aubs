@@ -335,6 +335,9 @@ body{background:var(--bgbase);color:var(--ink);font-family:var(--font-body);
 
 <div class="toast" id="toast"></div>
 
+<!-- Build stamp (tools/stamp-build.cjs) — version + short git hash + build time, regenerated
+     on every deploy so the footer visibly changes with each shipped build. -->
+<script src="build-info.js"></script>
 <!-- AUBS Spine (Checkpoint 0) — deterministic truth core, loaded before the app module -->
 <script src="spine/spine.js"></script>
 <!-- AUBS Ledger (Milestone 0) — tamper-evident provenance; inert unless FLAG_LEDGER is on -->
@@ -1077,6 +1080,27 @@ function extractFacts(text){
   }
   return facts;
 }
+/* MEMORY-RECALL FIX: a name STATED IN CHAT must also update the governed fact
+   identity:user_name (S.userName) through the proper save path — not just the memory list.
+   Without this, resolvedIdentity().userName stays empty, identityGuard erases the runtime's
+   own recall answer ("Your name is Chris" → "I don't know your name yet"), and "what's my
+   name" answers as if unknown despite the stored memory. Runs on NEWLY captured facts only;
+   persists settings, rebuilds the system prompt, and refreshes the header together. */
+function syncUserNameFromFacts(newFacts){
+  try{
+    for(const f of (newFacts||[])){
+      const m=/^User'?s name is\s+(.+?)\s*$/i.exec(String(f||""));
+      if(m && m[1]){
+        const name=m[1].replace(/[.?!,;:]+$/,"").trim();
+        if(name && name!==(S.userName||"").trim()){
+          S.userName=name; persist(); rebuildSystemPrompt(); refreshNames();
+          console.log('[AUBS] identity: user name stated in chat → governed fact identity:user_name = '+name);
+        }
+        return;
+      }
+    }
+  }catch(_){}
+}
 function captureMemories(userText){
   // MEMORY-FIRST (flag ON): reconcile through the spine — capture new facts AND supersede a
   // changed single-value fact ("I moved to Seattle" replaces the old home) so recall never
@@ -1087,10 +1111,12 @@ function captureMemories(userText){
       memories=r.memories;
       if(memories.length>MEM_MAX) memories=memories.slice(-MEM_MAX);
       saveMemories(); rebuildSystemPrompt(); updateMemCount();
+      syncUserNameFromFacts(r.added);
     }
     return;
   }
   let changed=false;
+  const added=[];
   // Bug-1 fix: prefer the spine's centralized, unit-tested extractor (handles
   // "im chris" / lowercase / mid-sentence). Falls back to the local one if the
   // spine isn't loaded.
@@ -1100,11 +1126,12 @@ function captureMemories(userText){
     if(!f || f.length<5 || f.length>140) continue;
     const norm=f.toLowerCase();
     if(memories.some(x=>x.toLowerCase()===norm)) continue;   // dedup — never store the same fact twice
-    memories.push(f); changed=true;
+    memories.push(f); added.push(f); changed=true;
   }
   if(changed){
     if(memories.length>MEM_MAX) memories=memories.slice(-MEM_MAX);
     saveMemories(); rebuildSystemPrompt(); updateMemCount();
+    syncUserNameFromFacts(added);
   }
 }
 function renderHistory(){
@@ -1113,12 +1140,18 @@ function renderHistory(){
   for(let i=1;i<history.length;i++){ addMsg(history[i].role==='user'?'user':'ai', history[i].content); }
   thread.scrollTop=thread.scrollHeight;
 }
+/* COUNTER-DESYNC FIX (device finding: "2 memories stored" while Clear saw none): the counter,
+   the clear action, and actual storage must read the SAME source. Both UI reads now re-sync
+   the module cache from the STORED list before reporting or acting — the counter says exactly
+   what "Clear memories" will act on, and both say exactly what survives a reload. */
+function storedMemories(){ memories = loadMemories(); return memories; }
 function updateMemCount(){
   const el=document.getElementById('memCount'); if(!el) return;
-  el.textContent = memories.length ? (memories.length+" memor"+(memories.length===1?"y":"ies")+" stored") : "No memories yet";
+  const n=storedMemories().length;
+  el.textContent = n ? (n+" memor"+(n===1?"y":"ies")+" stored") : "No memories yet";
 }
 window.clearMemories=function(){
-  if(!memories.length){ toast("No memories to clear"); return; }
+  if(!storedMemories().length){ toast("No memories to clear"); return; }
   if(!confirm("Clear all "+memories.length+" saved memories? This can't be undone.")) return;
   memories=[]; saveMemories(); rebuildSystemPrompt(); updateMemCount(); toast("Memories cleared");
 };
@@ -1143,8 +1176,12 @@ function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg
 applyAppearance();
 
 // Build marker — lets us confirm on-device exactly which code is live (the service
-// worker can otherwise serve a stale spine.js / HTML). Bump this with each shipped change.
-const BUILD="trust-os-1 · constitution-m14 · governed-local";
+// worker can otherwise serve a stale spine.js / HTML). The version + short git hash +
+// build date come from build-info.js, REGENERATED ON EVERY DEPLOY by tools/stamp-build.cjs
+// (via .github/workflows/pages.yml) — so a deploy that reached the device is always
+// visible in the footer; "dev" means an un-stamped local/branch build.
+const _BI=(typeof window!=="undefined"&&window.AUBS_BUILD)||null;
+const BUILD=(_BI?("v"+_BI.version+" · "+_BI.commit+(_BI.built_at?(" · "+String(_BI.built_at).slice(0,10)):"")+" · "):"")+"trust-os-1 · constitution-m14 · governed-local";
 console.log("[AUBS] build:", BUILD, "· spine:", (typeof SPINE!=="undefined"&&SPINE)?SPINE.SPINE_VERSION:"NOT LOADED");
 // Honest on-device marker: real build + spine version + whether the Trust OS scripts actually
 // loaded + which flags are active this session. This is the reliable "what's live" indicator.
@@ -1704,12 +1741,18 @@ async function runModelTurnThroughConstitution(text, sent, bubble, aiWrap, t0, r
   }catch(_){}
   if(ui.ok){
     let outText=ui.text;
-    if(routerOn && SPINE && SPINE.cleanModelOutput){ try{ const cc=SPINE.cleanModelOutput(outText); if(cc&&cc.text){ if(cc.text!==outText) console.log('[AUBS] validator: cleanModelOutput rewrote the reply (identity boilerplate / repetition stripped)'); outText=cc.text; } }catch(_){} }
+    // MEMORY-RECALL FIX: the output guards exist to police MODEL output. A governed-fact
+    // answer (res.governed_fact — model 0×) is RUNTIME-OWNED TRUTH and must never be
+    // rewritten: identityGuard was erasing the user's own name from the runtime's recall
+    // answer ("Your name is Chris" → "I don't know your name yet") whenever Settings had
+    // no user name. Guards now run on model turns only.
+    const _modelTurn = !res.identity && !res.governed_fact;
+    if(_modelTurn && routerOn && SPINE && SPINE.cleanModelOutput){ try{ const cc=SPINE.cleanModelOutput(outText); if(cc&&cc.text){ if(cc.text!==outText) console.log('[AUBS] validator: cleanModelOutput rewrote the reply (identity boilerplate / repetition stripped)'); outText=cc.text; } }catch(_){} }
     // Unified Identity GUARD (flag ON, model turns only): neutralize a wrong assistant-name claim,
     // a false AUBS expansion, or an invented user name. Skipped on deterministic identity turns
-    // (res.identity set) and when the flag is off. Deterministic, no model in the loop.
-    if(!res.identity && SPINE && SPINE.identityGuard){ const _r=resolvedIdentity(); if(_r){ try{ const _ig=SPINE.identityGuard(outText, _r); if(_ig!==outText){ console.log('[AUBS] validator: identityGuard rewrote a wrong assistant-name / identity claim'); outText=_ig; } }catch(_){} } }
-    if(!res.identity){ const _pg=personaGuardOut(outText); if(_pg!==outText){ console.log('[AUBS] validator: personaGuard stripped a model-identity / AI-disclaimer leak'); outText=_pg; } }   // FLAG_PERSONA: style guard on model turns (no-op when off)
+    // (res.identity set), on governed-fact turns, and when the flag is off.
+    if(_modelTurn && SPINE && SPINE.identityGuard){ const _r=resolvedIdentity(); if(_r){ try{ const _ig=SPINE.identityGuard(outText, _r); if(_ig!==outText){ console.log('[AUBS] validator: identityGuard rewrote a wrong assistant-name / identity claim'); outText=_ig; } }catch(_){} } }
+    if(_modelTurn){ const _pg=personaGuardOut(outText); if(_pg!==outText){ console.log('[AUBS] validator: personaGuard stripped a model-identity / AI-disclaimer leak'); outText=_pg; } }   // FLAG_PERSONA: style guard on model turns (no-op when off)
     bubble.textContent=outText;
     // Trust OS Glass Box — one honest line under the answer, rendered from the Trust Record only.
     if(ui.glass_box_easy && trustOsOn()){ try{ const gx=document.createElement('div'); gx.className='glass-box-easy'; gx.style.cssText='font-size:0.78em;opacity:0.7;margin-top:4px'; gx.textContent='🔎 '+ui.glass_box_easy+(ui.trust_valid?'':' (record unverified)'); aiWrap.appendChild(gx); }catch(_){} }
